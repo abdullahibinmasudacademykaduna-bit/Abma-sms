@@ -1,0 +1,14 @@
+{
+  "name": "Greenwood SMS — School Management System",
+  "short_name": "Greenwood SMS",
+  "description": "A modern, offline-capable School Management System for administrators, teachers, parents and students.",
+  "start_url": "./index.html",
+  "scope": "./",
+  "display": "standalone",
+  "orientation": "portrait-primary",
+  "background_color": "#F6F8F5",
+  "theme_color": "#1B4332",
+  "icons": [
+    { "src": "icons/icon.svg", "sizes": "any", "type": "image/svg+xml", "purpose": "any maskable" }
+  ]
+}

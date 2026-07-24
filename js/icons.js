@@ -1,0 +1,65 @@
+/* Greenwood SMS — Icon set
+   Minimal hand-picked stroke icons (feather-style), returned as SVG strings.
+   Usage: ICONS.dashboard, ICONS.students(24) etc. Kept dependency-free. */
+
+(function(){
+  function svg(path, size){
+    size = size || 18;
+    return `<svg xmlns="http://www.w3.org/2000/svg" width="${size}" height="${size}" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">${path}</svg>`;
+  }
+  window.ICONS = {
+    dashboard: s => svg('<rect x="3" y="3" width="7" height="9" rx="1.5"/><rect x="14" y="3" width="7" height="5" rx="1.5"/><rect x="14" y="12" width="7" height="9" rx="1.5"/><rect x="3" y="16" width="7" height="5" rx="1.5"/>', s),
+    students: s => svg('<circle cx="12" cy="8" r="3.2"/><path d="M4.5 20c1-3.6 4-5.6 7.5-5.6s6.5 2 7.5 5.6"/>', s),
+    teachers: s => svg('<path d="M12 3 2 8l10 5 10-5-10-5Z"/><path d="M6 10.5V16c0 1.7 2.7 3 6 3s6-1.3 6-3v-5.5"/>', s),
+    staff: s => svg('<circle cx="9" cy="8" r="2.6"/><circle cx="17" cy="9" r="2.2"/><path d="M3.5 19c.7-2.8 2.9-4.4 5.5-4.4s4.8 1.6 5.5 4.4"/><path d="M14.8 15.2c2 .2 3.6 1.6 4.2 3.8"/>', s),
+    classes: s => svg('<path d="M4 19.5V6.2C4 5 5 4 6.2 4h9.6C17 4 18 5 18 6.2v15.3"/><path d="M4 19.5A2.5 2.5 0 0 1 6.5 17H18"/><path d="M8 8h6M8 11h6"/>', s),
+    attendance: s => svg('<rect x="3.5" y="4.5" width="17" height="16" rx="2"/><path d="M8 3v3M16 3v3M3.5 9.5h17"/><path d="m8.2 14 2.3 2.3 4.8-4.8"/>', s),
+    exams: s => svg('<path d="M6 3.5h9l3 3V20a1 1 0 0 1-1 1H6a1 1 0 0 1-1-1V4.5A1 1 0 0 1 6 3.5Z"/><path d="M9 12h6M9 15.5h6M9 8.5h3"/>', s),
+    fees: s => svg('<circle cx="12" cy="12" r="8.6"/><path d="M12 7.5v9M14.7 9.7c0-1.1-1.2-1.9-2.7-1.9s-2.6.8-2.6 1.8c0 2.7 5.3 1.3 5.3 4 0 1-1.1 1.8-2.7 1.8s-2.7-.8-2.7-1.9"/>', s),
+    parent: s => svg('<circle cx="8" cy="7" r="2.6"/><circle cx="16" cy="7" r="2.6"/><path d="M2.8 19c.6-2.8 2.6-4.4 5.2-4.4s4.6 1.6 5.2 4.4"/><path d="M11.6 14.9c2.4.2 4.2 1.8 4.6 4.1"/>', s),
+    timetable: s => svg('<rect x="3.5" y="4" width="17" height="16" rx="2"/><path d="M3.5 9.5h17M8 4v3M16 4v3"/><path d="M7.5 13h2M11 13h2M14.5 13h2M7.5 16.5h2M11 16.5h2"/>', s),
+    library: s => svg('<path d="M4 5.2c2.2-1 5-1 7 0v14.6c-2-1-4.8-1-7 0V5.2Z"/><path d="M20 5.2c-2.2-1-5-1-7 0v14.6c2-1 4.8-1 7 0V5.2Z"/>', s),
+    transport: s => svg('<path d="M3.5 16.5V8.7C3.5 7 5 5.7 6.8 5.7h10.4c1.8 0 3.3 1.3 3.3 3v7.8"/><path d="M3.5 16.5h17M6.5 16.5v2.3M17.5 16.5v2.3"/><circle cx="7.2" cy="16.5" r="1.6"/><circle cx="16.8" cy="16.5" r="1.6"/>', s),
+    hostel: s => svg('<path d="M4 11 12 4l8 7"/><path d="M5.5 10v9.5h13V10"/><path d="M10 19.5v-5h4v5"/>', s),
+    comms: s => svg('<path d="M4 5.5h16v11H8.5L4 20V5.5Z"/><path d="M8 9.5h8M8 12.5h5"/>', s),
+    homework: s => svg('<path d="M5 4.5h9l5 5V19a1 1 0 0 1-1 1H5a1 1 0 0 1-1-1V5.5a1 1 0 0 1 1-1Z"/><path d="M14 4.5V9h5M8 13h8M8 16.5h5"/>', s),
+    notice: s => svg('<path d="M4.5 9.5v4a1 1 0 0 0 1 1h1.8l4.4 3.4a.7.7 0 0 0 1.1-.6V5.7a.7.7 0 0 0-1.1-.6L7.3 8.5H5.5a1 1 0 0 0-1 1Z"/><path d="M17 9a3.5 3.5 0 0 1 0 5.9"/>', s),
+    inventory: s => svg('<path d="M4 7.5 12 3l8 4.5-8 4.5-8-4.5Z"/><path d="M4 7.5V16l8 4.5V12M20 7.5V16l-8 4.5"/>', s),
+    health: s => svg('<path d="M12 21s-7.5-4.6-9.8-9.2C.6 8.1 3 4.7 6.5 4.7c2 0 3.5 1.1 5.5 3.3 2-2.2 3.5-3.3 5.5-3.3 3.5 0 5.9 3.4 4.3 7.1C19.5 16.4 12 21 12 21Z"/>', s),
+    events: s => svg('<rect x="3.5" y="5" width="17" height="15" rx="2"/><path d="M3.5 9.5h17M8 3v4M16 3v4"/><path d="M12 13.5l1.1 2.2 2.4.4-1.8 1.7.4 2.4L12 19l-2.1 1.2.4-2.4-1.8-1.7 2.4-.4L12 13.5Z"/>', s),
+    alumni: s => svg('<path d="M12 3 2 8l10 5 10-5-10-5Z"/><path d="M6 10.5V16c0 1.7 2.7 3 6 3s6-1.3 6-3v-5.5"/><path d="M21 8v6"/>', s),
+    roles: s => svg('<path d="m12 3 7 3v5.5c0 4.4-3 7.7-7 9-4-1.3-7-4.6-7-9V6l7-3Z"/><path d="m9.2 12 1.9 1.9 3.7-3.8"/>', s),
+    userManage: s => svg('<circle cx="9" cy="8" r="3"/><path d="M3.5 20c.8-3.4 3-5.3 5.5-5.3s4.7 1.9 5.5 5.3"/><circle cx="17.5" cy="8.5" r="2"/><path d="M15.5 12.2c1.7.4 2.9 1.7 3.5 3.6M20.5 5.5v3M22 7h-3"/>', s),
+    reports: s => svg('<path d="M4.5 20V4.5M4.5 20h15"/><rect x="7" y="12" width="2.6" height="6"/><rect x="11.2" y="8.5" width="2.6" height="9.5"/><rect x="15.4" y="6" width="2.6" height="12"/>', s),
+    settings: s => svg('<circle cx="12" cy="12" r="3.2"/><path d="M19.4 13.5a1.7 1.7 0 0 0 .35 1.9l.06.06a2.1 2.1 0 1 1-3 3l-.07-.06a1.7 1.7 0 0 0-1.9-.34 1.7 1.7 0 0 0-1 1.55V20a2.1 2.1 0 1 1-4.2 0v-.1a1.7 1.7 0 0 0-1.1-1.55 1.7 1.7 0 0 0-1.9.34l-.06.06a2.1 2.1 0 1 1-3-3l.06-.06a1.7 1.7 0 0 0 .34-1.9 1.7 1.7 0 0 0-1.55-1H4a2.1 2.1 0 1 1 0-4.2h.1a1.7 1.7 0 0 0 1.55-1.1 1.7 1.7 0 0 0-.34-1.9l-.06-.06a2.1 2.1 0 1 1 3-3l.06.06a1.7 1.7 0 0 0 1.9.34H10.3a1.7 1.7 0 0 0 1-1.55V4a2.1 2.1 0 1 1 4.2 0v.1a1.7 1.7 0 0 0 1 1.55 1.7 1.7 0 0 0 1.9-.34l.06-.06a2.1 2.1 0 1 1 3 3l-.06.06a1.7 1.7 0 0 0-.34 1.9V10.3a1.7 1.7 0 0 0 1.55 1H20a2.1 2.1 0 1 1 0 4.2h-.1a1.7 1.7 0 0 0-1.5 1Z"/>', s),
+    search: s => svg('<circle cx="11" cy="11" r="7.2"/><path d="m20.5 20.5-4.2-4.2"/>', s),
+    bell: s => svg('<path d="M6 9.5a6 6 0 1 1 12 0c0 4.5 1.5 6 1.5 6h-15s1.5-1.5 1.5-6Z"/><path d="M9.5 19a2.5 2.5 0 0 0 5 0"/>', s),
+    sun: s => svg('<circle cx="12" cy="12" r="4.2"/><path d="M12 2.5v2M12 19.5v2M4.6 4.6l1.4 1.4M18 18l1.4 1.4M2.5 12h2M19.5 12h2M4.6 19.4 6 18M18 6l1.4-1.4"/>', s),
+    moon: s => svg('<path d="M20 14.5A8.5 8.5 0 1 1 9.5 4a7 7 0 0 0 10.5 10.5Z"/>', s),
+    plus: s => svg('<path d="M12 5v14M5 12h14"/>', s),
+    edit: s => svg('<path d="M4 20h4.2L19.8 8.4a2 2 0 0 0 0-2.8l-1.4-1.4a2 2 0 0 0-2.8 0L4 15.8V20Z"/><path d="m14.5 5.5 4 4"/>', s),
+    trash: s => svg('<path d="M4.5 7h15M9.5 7V5a1.5 1.5 0 0 1 1.5-1.5h2A1.5 1.5 0 0 1 14.5 5v2M18 7l-.8 12.1A2 2 0 0 1 15.2 21H8.8a2 2 0 0 1-2-1.9L6 7"/><path d="M10 11v6M14 11v6"/>', s),
+    eye: s => svg('<path d="M2.5 12S6 5.5 12 5.5 21.5 12 21.5 12 18 18.5 12 18.5 2.5 12 2.5 12Z"/><circle cx="12" cy="12" r="2.8"/>', s),
+    chevronDown: s => svg('<path d="m6 9 6 6 6-6"/>', s),
+    chevronLeft: s => svg('<path d="m15 18-6-6 6-6"/>', s),
+    chevronRight: s => svg('<path d="m9 18 6-6-6-6"/>', s),
+    close: s => svg('<path d="m6 6 12 12M18 6 6 18"/>', s),
+    menu: s => svg('<path d="M3.5 6.5h17M3.5 12h17M3.5 17.5h17"/>', s),
+    download: s => svg('<path d="M12 3.5v11.5M7.5 10.5 12 15l4.5-4.5"/><path d="M4.5 17v2.5a1 1 0 0 0 1 1h13a1 1 0 0 0 1-1V17"/>', s),
+    upload: s => svg('<path d="M12 20.5V9M7.5 13 12 8.5 16.5 13"/><path d="M4.5 17v2.5a1 1 0 0 0 1 1h13a1 1 0 0 0 1-1V17"/>', s),
+    print: s => svg('<path d="M7 8.5V4h10v4.5"/><rect x="4.5" y="8.5" width="15" height="8" rx="1.5"/><path d="M7 15.5h10V20H7v-4.5Z"/>', s),
+    filter: s => svg('<path d="M4 5h16l-6.2 7.4V19l-3.6 2v-8.6L4 5Z"/>', s),
+    check: s => svg('<path d="m5 13 4.5 4.5L19 8"/>', s),
+    logout: s => svg('<path d="M9 20H6a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2h3"/><path d="M15.5 16.5 21 12l-5.5-4.5M21 12H9"/>', s),
+    calendar: s => svg('<rect x="3.5" y="5" width="17" height="15" rx="2"/><path d="M3.5 9.5h17M8 3v4M16 3v4"/>', s),
+    money: s => svg('<rect x="2.5" y="6" width="19" height="12" rx="2"/><circle cx="12" cy="12" r="2.8"/><path d="M6 8v.01M18 16v.01"/>', s),
+    trend: s => svg('<path d="M3.5 17.5 9.5 11l4 4 6.5-7.5"/><path d="M15.5 7.5H20v4.5"/>', s),
+    book: s => svg('<path d="M4 5.2c2.2-1 5-1 7 0v14.6c-2-1-4.8-1-7 0V5.2Z"/><path d="M20 5.2c-2.2-1-5-1-7 0v14.6c2-1 4.8-1 7 0V5.2Z"/>', s),
+    id: s => svg('<rect x="3" y="5" width="18" height="14" rx="2"/><circle cx="8.5" cy="11" r="2"/><path d="M6 16c.5-1.6 1.7-2.4 2.5-2.4s2 .8 2.5 2.4M14 9.5h4M14 13h4M14 16h2.5"/>', s),
+    phone: s => svg('<path d="M6 3.5h3l1.5 4-2 1.5a13 13 0 0 0 5.5 5.5l1.5-2 4 1.5v3a1.5 1.5 0 0 1-1.6 1.5A16 16 0 0 1 4.5 5.1 1.5 1.5 0 0 1 6 3.5Z"/>', s),
+    mail: s => svg('<rect x="3.5" y="5.5" width="17" height="13" rx="2"/><path d="m4.5 6.5 7.5 6 7.5-6"/>', s),
+    location: s => svg('<path d="M12 21s7-6.5 7-11.5A7 7 0 0 0 5 9.5C5 14.5 12 21 12 21Z"/><circle cx="12" cy="9.5" r="2.4"/>', s),
+    grid: s => svg('<rect x="3.5" y="3.5" width="7.5" height="7.5" rx="1.3"/><rect x="13" y="3.5" width="7.5" height="7.5" rx="1.3"/><rect x="3.5" y="13" width="7.5" height="7.5" rx="1.3"/><rect x="13" y="13" width="7.5" height="7.5" rx="1.3"/>', s),
+    wifiOff: s => svg('<path d="M2.5 8.5a16 16 0 0 1 4-2.7M8 15.5a8 8 0 0 1 8 0M11 18.7a2 2 0 0 1 2 0M12.2 12a11.5 11.5 0 0 1 4 1.2M17.5 9.3a16 16 0 0 1 4 2.2M3 3l18 18"/>', s),
+  };
+})();

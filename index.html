@@ -1,0 +1,48 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Greenwood SMS — School Management System</title>
+<meta name="description" content="A modern, offline-capable School Management System.">
+<meta name="theme-color" content="#1B4332">
+<link rel="manifest" href="manifest.json">
+<link rel="icon" href="icons/icon.svg" type="image/svg+xml">
+<link rel="apple-touch-icon" href="icons/icon.svg">
+<link rel="stylesheet" href="css/style.css">
+<script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.4/dist/chart.umd.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/qrcodejs@1.0.0/qrcode.min.js"></script>
+
+<script src="https://www.gstatic.com/firebasejs/10.14.1/firebase-app-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/10.14.1/firebase-auth-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/10.14.1/firebase-firestore-compat.js"></script>
+<script src="js/firebase-config.js"></script>
+</head>
+<body>
+
+<div id="app"></div>
+<div id="toast-host"></div>
+
+<!-- ============ App scripts (plain ES6, no bundler — loaded in dependency order) ============ -->
+<script src="js/icons.js"></script>
+<script src="js/db.firebase.js"></script>
+<script src="js/auth.firebase.js"></script>
+<script src="js/ui.js"></script>
+<script src="js/charts.js"></script>
+<script src="js/modules/dashboard.js"></script>
+<script src="js/modules/people.js"></script>
+<script src="js/modules/academics.js"></script>
+<script src="js/modules/attendance.js"></script>
+<script src="js/modules/exams.js"></script>
+<script src="js/modules/fees.js"></script>
+<script src="js/modules/expenditure.js"></script>
+<script src="js/modules/timetable.js"></script>
+<script src="js/modules/library.js"></script>
+<script src="js/modules/generic.js"></script>
+<script src="js/modules/portals.js"></script>
+<script src="js/modules/users.js"></script>
+<script src="js/modules/settings.js"></script>
+<script src="js/router.js"></script>
+<script src="js/app.js"></script>
+</body>
+</html>
