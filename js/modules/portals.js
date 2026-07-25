@@ -109,7 +109,7 @@ MODULES.teacherPortal = function(container, ctx){
 MODULES.reports = function(container, ctx){
   const students = DB.all('students');
   const fees = DB.all('fees');
-  const attendance = DB.all('attendance');
+  const attendance = dailyAttendanceAggregates();
   const results = DB.all('results');
 
   container.innerHTML = `
@@ -131,7 +131,7 @@ MODULES.reports = function(container, ctx){
 
   CHARTS.line('rep-att', {
     labels: attendance.map(a=>new Date(a.date).toLocaleDateString(undefined,{day:'2-digit',month:'short'})),
-    datasets:[{label:'Present %', data: attendance.map(a=>Math.round(a.present/a.total*100))}]
+    datasets:[{label:'Present %', data: attendance.map(a=> a.total ? Math.round(a.present/a.total*100) : 0)}]
   });
 
   const statusCounts = {Paid:0, Partial:0, Pending:0};

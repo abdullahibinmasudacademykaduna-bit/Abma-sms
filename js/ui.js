@@ -110,6 +110,14 @@ const UI = (function(){
         }).join('')}</div>`;
       } else if(f.type==='textarea'){
         input = `<textarea name="${f.name}" rows="${f.rows||3}" placeholder="${f.placeholder||''}" ${req}>${val}</textarea>`;
+      } else if(f.type==='text-datalist'){
+        // A normal text input (any value can be typed) that also offers
+        // existing values as tap-to-fill suggestions via a datalist —
+        // for fields like "Subject" where the common cases should be
+        // one tap, but a school-specific or new subject can still be
+        // typed freely instead of being stuck with a fixed list.
+        const listId = `dl-${f.name}-${Math.random().toString(36).slice(2,8)}`;
+        input = `<input type="text" name="${f.name}" value="${val}" placeholder="${f.placeholder||''}" list="${listId}" ${req}/><datalist id="${listId}">${(f.options||[]).map(o=>`<option value="${o}"></option>`).join('')}</datalist>`;
       } else {
         input = `<input type="${f.type||'text'}" name="${f.name}" value="${val}" placeholder="${f.placeholder||''}" ${req} ${f.step?`step="${f.step}"`:''}/>`;
       }

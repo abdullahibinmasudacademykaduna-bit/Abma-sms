@@ -317,8 +317,10 @@ tbody tr:hover{background:var(--surface-2);}
 .qa-item span{font-size:12px; font-weight:600;}
 
 .print-hide{}
+.print-only{display:none;}
 @media print{
   .sidebar,.topbar,.print-hide{display:none !important;}
+  .print-only{display:block !important; margin-bottom:12px;}
   .main{margin-left:0 !important;}
   body{background:#fff;}
 }

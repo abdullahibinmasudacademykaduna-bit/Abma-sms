@@ -38,21 +38,26 @@ MODULES.attendance = function(container, ctx){
     </div>
   `;
 
-  const attData = DB.all('attendance');
+  const attData = dailyAttendanceAggregates();
   CHARTS.line('att-chart', {
     labels: attData.map(a=>new Date(a.date).toLocaleDateString(undefined,{day:'2-digit',month:'short'})),
-    datasets:[{label:'Present %', data: attData.map(a=>Math.round(a.present/a.total*100)), color:'#2D6A4F'}]
+    datasets:[{label:'Present %', data: attData.map(a=> a.total ? Math.round(a.present/a.total*100) : 0), color:'#2D6A4F'}]
   });
 
   const latest = attData[attData.length-1];
-  container.querySelector('#att-snapshot').innerHTML = `
-    <div class="grid grid-2" style="gap:10px;">
-      <div class="card-flat"><div class="row-sub">Present</div><div class="value mono" style="font-size:20px;">${latest.present}</div></div>
-      <div class="card-flat"><div class="row-sub">Absent</div><div class="value mono" style="font-size:20px;">${latest.absent}</div></div>
-    </div>
-    <div class="bar-track" style="margin-top:14px;"><div class="bar-fill" style="width:${Math.round(latest.present/latest.total*100)}%"></div></div>
-    <div class="row-sub" style="margin-top:8px;">${Math.round(latest.present/latest.total*100)}% attendance rate today</div>
-  `;
+  if(latest){
+    const pct = latest.total ? Math.round(latest.present/latest.total*100) : 0;
+    container.querySelector('#att-snapshot').innerHTML = `
+      <div class="grid grid-2" style="gap:10px;">
+        <div class="card-flat"><div class="row-sub">Present</div><div class="value mono" style="font-size:20px;">${latest.present}</div></div>
+        <div class="card-flat"><div class="row-sub">Absent</div><div class="value mono" style="font-size:20px;">${latest.absent}</div></div>
+      </div>
+      <div class="bar-track" style="margin-top:14px;"><div class="bar-fill" style="width:${pct}%"></div></div>
+      <div class="row-sub" style="margin-top:8px;">${pct}% attendance rate today</div>
+    `;
+  } else {
+    container.querySelector('#att-snapshot').innerHTML = UI.emptyState('No attendance marked yet', 'Use the roster below to mark today\'s attendance.');
+  }
 
   const classSelect = container.querySelector('#class-select');
   classSelect.value = activeClass;

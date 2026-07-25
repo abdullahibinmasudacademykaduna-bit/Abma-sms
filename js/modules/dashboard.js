@@ -1,12 +1,32 @@
 /* Greenwood SMS — Dashboard module */
 window.MODULES = window.MODULES || {};
 
+// Attendance is marked per-student per-day into attendanceRecords — the
+// "attendance" collection is a seed-only demo shortcut (a pre-baked daily
+// summary) that nothing in the real app ever writes to, so it stays empty
+// forever once real data replaces the demo. Compute the same daily
+// present/absent/total shape from attendanceRecords instead, so this
+// keeps working once a school actually starts marking attendance.
+function dailyAttendanceAggregates(){
+  const records = DB.all('attendanceRecords');
+  const byDate = {};
+  records.forEach(r=>{
+    if(!byDate[r.date]) byDate[r.date] = {date:r.date, present:0, absent:0, late:0, total:0};
+    const b = byDate[r.date];
+    b.total++;
+    if(r.status==='Present') b.present++;
+    else if(r.status==='Absent') b.absent++;
+    else if(r.status==='Late') b.late++;
+  });
+  return Object.keys(byDate).sort().map(d=>byDate[d]);
+}
+
 MODULES.dashboard = function(container, ctx){
   const students = DB.all('students');
   const teachers = DB.all('teachers');
   const staff = DB.all('staff');
   const classes = DB.all('classes');
-  const attendance = DB.all('attendance');
+  const attendance = dailyAttendanceAggregates();
   const fees = DB.all('fees');
   const activities = DB.all('activities').filter(a => !a.forUserId || a.forUserId === ctx.user.id);
   const events = DB.all('events');
