@@ -49,18 +49,7 @@ const DB = (function(){
   let db = null;
   let settingsUnsub = null;
   const collectionUnsubs = {};
-  let readyResolve;
-  const ready = new Promise(res=> readyResolve = res);
-  let pendingListeners = COLLECTIONS.length + 1; // +1 for settings
-  let booted = false;
-
-  function markOneReady(){
-    pendingListeners -= 1;
-    if(pendingListeners <= 0 && !booted){
-      booted = true;
-      readyResolve();
-    }
-  }
+  let ready = Promise.resolve(); // pre-auth placeholder; replaced by init()
 
   function uid(prefix){
     // Used when we need a client-side id before the Firestore write
@@ -69,34 +58,62 @@ const DB = (function(){
     return (prefix ? prefix + '_' : '') + Math.random().toString(36).slice(2,9) + Date.now().toString(36).slice(-4);
   }
 
+  function detachAllListeners(){
+    Object.values(collectionUnsubs).forEach(unsub => { if(unsub) unsub(); });
+    if(settingsUnsub) settingsUnsub();
+  }
+
+  // Called once after a successful sign-in (from auth.firebase.js), and
+  // again on every subsequent login. Firestore's security rules gate
+  // almost every collection behind "signed in" or a specific role, so
+  // attempting to listen BEFORE auth is known would just get a
+  // permission-denied error — and Firestore listeners don't silently
+  // retry after that, so it has to be attached fresh, after auth,
+  // every time. Returns a promise that resolves once every collection
+  // has received its first snapshot (or been denied — a denied
+  // collection just resolves as an empty cache, consistent with that
+  // role not being able to see it in the UI either).
   function init(){
-    db = firebase.firestore();
-    // Offline persistence: cached reads keep working if the network
-    // drops, and queued writes flush automatically on reconnect.
-    db.enablePersistence({synchronizeTabs:true}).catch(err=>{
-      console.warn('Firestore offline persistence unavailable:', err.code);
-    });
+    detachAllListeners();
+    if(!db){
+      db = firebase.firestore();
+      db.enablePersistence({synchronizeTabs:true}).catch(err=>{
+        console.warn('Firestore offline persistence unavailable:', err.code);
+      });
+    }
+
+    let resolveReady;
+    ready = new Promise(res=> resolveReady = res);
+    let pending = COLLECTIONS.length + 1; // +1 for settings
+    let settled = false;
+    function markOne(){
+      pending -= 1;
+      if(pending <= 0 && !settled){ settled = true; resolveReady(); }
+    }
 
     COLLECTIONS.forEach(name=>{
-      state[name] = [];
+      state[name] = state[name] || [];
       collectionUnsubs[name] = db.collection(name).onSnapshot(snap=>{
         state[name] = snap.docs.map(d=>({id:d.id, ...d.data()}));
-        if(!booted) markOneReady();
+        if(!settled) markOne();
         else ROUTER.refresh();
       }, err=>{
         console.error(`Firestore listener failed for "${name}":`, err);
-        if(!booted) markOneReady();
+        state[name] = []; // no access -> reads as empty, matches what the UI should show
+        if(!settled) markOne();
       });
     });
 
     settingsUnsub = db.collection('meta').doc('settings').onSnapshot(doc=>{
       state.settings = doc.exists ? doc.data() : {};
-      if(!booted) markOneReady();
+      if(!settled) markOne();
       else ROUTER.refresh();
     }, err=>{
       console.error('Firestore listener failed for settings:', err);
-      if(!booted) markOneReady();
+      if(!settled) markOne();
     });
+
+    return ready;
   }
 
   function collection(name){
@@ -165,39 +182,45 @@ const DB = (function(){
   function exportJSON(){ return JSON.stringify(state, null, 2); }
 
   function importJSON(json){
-    // Bulk-import writes every record to Firestore. Fine for restoring
-    // a small JSON backup from Settings. For the initial full seed
-    // migration (hundreds of records), use scripts/migrate-seed-data.js
-    // instead — Firestore batches cap at 500 writes, which this
-    // single-batch client-side path does not attempt to split.
+    // Bulk-import writes every record to Firestore, chunked into
+    // sequential batches of 400 (Firestore's hard cap is 500 writes
+    // per batch). This is what Settings -> Restore backup calls, and
+    // it's also a full alternative to scripts/migrate_seed_data.py if
+    // you don't have a computer handy: sign in as Super Admin in the
+    // browser and restore a full backup straight from here — no
+    // terminal, no Python, no CLI. It returns a promise that resolves
+    // once every batch has committed.
     let parsed;
     try{ parsed = JSON.parse(json); } catch(e){ throw new Error('Invalid JSON'); }
-    let ops = 0;
-    Object.keys(parsed).forEach(name=>{
-      if(name==='settings') { ops++; return; }
-      if(!COLLECTIONS.includes(name)) return;
-      ops += (parsed[name]||[]).length;
-    });
-    if(ops > 450){
-      throw new Error(`This backup has ${ops} records — too many for a single browser batch. Use scripts/migrate-seed-data.js for imports this size.`);
-    }
-    const batch = db.batch();
+
+    const jobs = [];
     Object.keys(parsed).forEach(name=>{
       if(name==='settings'){
-        batch.set(db.collection('meta').doc('settings'), parsed.settings || {}, {merge:true});
+        jobs.push(()=> db.collection('meta').doc('settings').set(parsed.settings || {}, {merge:true}));
         return;
       }
       if(!COLLECTIONS.includes(name)) return;
-      (parsed[name]||[]).forEach(record=>{
-        const id = record.id || uid(name.slice(0,3));
-        const toWrite = {...record}; delete toWrite.id;
-        batch.set(db.collection(name).doc(id), toWrite);
-      });
+      const records = parsed[name] || [];
+      for(let i=0; i<records.length; i+=400){
+        const chunk = records.slice(i, i+400);
+        jobs.push(()=>{
+          const batch = db.batch();
+          chunk.forEach(record=>{
+            const id = record.id || uid(name.slice(0,3));
+            const toWrite = {...record}; delete toWrite.id;
+            batch.set(db.collection(name).doc(id), toWrite);
+          });
+          return batch.commit();
+        });
+      }
     });
-    return batch.commit();
+
+    // Run sequentially (not all at once) so a slow/flaky connection
+    // doesn't fire 20 batches in parallel and fail them all together —
+    // this matters more here than on a PC since phone data connections
+    // are more likely to hiccup mid-import.
+    return jobs.reduce((chain, job) => chain.then(job), Promise.resolve());
   }
 
-  init();
-
-  return { ready, all, get, add, update, remove, count, save, reset, exportJSON, importJSON, uid, collection, settings, updateSettings };
+  return { ready, init, all, get, add, update, remove, count, save, reset, exportJSON, importJSON, uid, collection, settings, updateSettings };
 })();

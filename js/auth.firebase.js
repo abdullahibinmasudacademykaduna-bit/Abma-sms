@@ -50,21 +50,28 @@ const AUTH = (function(){
   let cachedUser = null;
   let readyResolve;
   const authStateReady = new Promise(res=> readyResolve = res);
-  // Wait for both: the Firestore collections cache (DB.ready) AND the
-  // first Firebase Auth state check, so currentUser() is reliable the
-  // instant app.js's boot() proceeds.
-  const ready = Promise.all([DB.ready, authStateReady]);
+  // Only waits on Firebase Auth's own state check — NOT on Firestore
+  // data. Firestore listeners can't be attached until we know whether
+  // there's a signed-in user (almost every collection's security rule
+  // requires it), so DB.init() happens inside this callback, after
+  // auth is known, rather than before.
+  const ready = authStateReady;
 
   firebase.auth().onAuthStateChanged(fbUser=>{
     if(!fbUser){ cachedUser = null; readyResolve(); return; }
-    // /users/{uid} doc id matches the Firebase Auth uid exactly —
-    // that's how a signed-in session maps to a role/name/links.
-    const record = DB.get('users', fbUser.uid);
-    cachedUser = record ? {...record, id: fbUser.uid} : null;
-    if(!cachedUser){
-      console.error(`No /users/${fbUser.uid} Firestore doc found for signed-in account ${fbUser.email}. They're authenticated but have no role — see FIREBASE_MIGRATION.md.`);
-    }
-    readyResolve();
+    // Session restore on page reload while already signed in: Firestore
+    // listeners were never attached this page-load (they're only ever
+    // attached inside login()/here, post-auth), so attach them now.
+    DB.init().then(()=>{
+      // /users/{uid} doc id matches the Firebase Auth uid exactly —
+      // that's how a signed-in session maps to a role/name/links.
+      const record = DB.get('users', fbUser.uid);
+      cachedUser = record ? {...record, id: fbUser.uid} : null;
+      if(!cachedUser){
+        console.error(`No /users/${fbUser.uid} Firestore doc found for signed-in account ${fbUser.email}. They're authenticated but have no role — see FIREBASE_MIGRATION.md.`);
+      }
+      readyResolve();
+    });
   }, err=>{
     console.error('Firebase Auth state listener error:', err);
     readyResolve();
@@ -72,19 +79,25 @@ const AUTH = (function(){
 
   function login(email, password){
     return firebase.auth().signInWithEmailAndPassword(email, password).then(cred=>{
-      const record = DB.get('users', cred.user.uid);
-      if(!record){
-        return firebase.auth().signOut().then(()=>{
-          throw new Error('Your account has no role assigned yet. Contact your Super Admin.');
-        });
-      }
-      if((record.status||'Active')==='Inactive'){
-        return firebase.auth().signOut().then(()=>{
-          throw new Error('This account has been deactivated.');
-        });
-      }
-      cachedUser = {...record, id: cred.user.uid};
-      return cachedUser;
+      // Attach Firestore listeners now — this is the FIRST point in the
+      // whole page's lifetime where request.auth is populated, so it's
+      // also the first point where firestore.rules will allow reading
+      // anything beyond the public login-screen stats.
+      return DB.init().then(()=>{
+        const record = DB.get('users', cred.user.uid);
+        if(!record){
+          return firebase.auth().signOut().then(()=>{
+            throw new Error('Your account has no role assigned yet. Contact your Super Admin.');
+          });
+        }
+        if((record.status||'Active')==='Inactive'){
+          return firebase.auth().signOut().then(()=>{
+            throw new Error('This account has been deactivated.');
+          });
+        }
+        cachedUser = {...record, id: cred.user.uid};
+        return cachedUser;
+      });
     }).catch(err=>{
       // Firebase's raw error codes aren't user-friendly — translate the common ones.
       const messages = {
