@@ -11,11 +11,13 @@ const DEFAULT_CLASS_NAMES = ['Pre-Nursery','Nursery 1','Nursery 2','Nursery 3','
 
 /* Real classes, sorted by their "order" field (used for promotion
    sequencing — see nextClassName). Classes without an explicit order
-   (e.g. old data) sort after ones that have it, in creation order. */
+   (e.g. old data) sort after ones that have it, in creation order.
+   Deliberately does NOT fall back to DEFAULT_CLASS_NAMES when empty —
+   an admin who deletes every class should see zero classes, not have
+   the old defaults reappear. DEFAULT_CLASS_NAMES is only ever used as
+   datalist suggestions when adding a class (see academics.js). */
 function getClassList(){
-  const rows = DB.all('classes');
-  if(!rows.length) return DEFAULT_CLASS_NAMES.map((name,i)=>({name, capacity:30, order:i, level: name.startsWith('Primary')?'primary':'nursery'}));
-  return rows.slice().sort((a,b)=> (a.order??9999) - (b.order??9999));
+  return DB.all('classes').slice().sort((a,b)=> (a.order??9999) - (b.order??9999));
 }
 function getClassNames(){
   return getClassList().map(c=>c.name);
