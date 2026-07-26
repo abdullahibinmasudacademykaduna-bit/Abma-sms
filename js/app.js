@@ -128,7 +128,11 @@ window.APP = (function(){
       if(!email || !password){ UI.toast('Enter your email and password','error'); return; }
       btn.disabled = true; btn.textContent = 'Signing in…';
       AUTH.login(email, password)
-        .then(user=>{ currentUser = user; renderShell(); })
+        .then(user=>{
+          currentUser = user;
+          location.hash = '#/' + defaultRouteFor(user.role);
+          renderShell();
+        })
         .catch(err=>{ UI.toast(err.message || 'Sign in failed', 'error'); })
         .finally(()=>{ btn.disabled = false; btn.textContent = 'Sign in'; });
     }
@@ -227,6 +231,7 @@ window.APP = (function(){
       if((user.status||'Active')==='Inactive'){ UI.toast('This account has been deactivated','error'); return; }
       AUTH.login(user.id);
       currentUser = user;
+      location.hash = '#/' + defaultRouteFor(user.role);
       renderShell();
     }
   }

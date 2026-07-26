@@ -77,7 +77,17 @@ MODULES.studentPortal = function(container, ctx){
 
 /* ---------------- Teacher Portal ---------------- */
 MODULES.teacherPortal = function(container, ctx){
-  const teacher = DB.get('teachers', ctx.user.linkedTeacherId) || DB.all('teachers')[0];
+  const teacher = DB.get('teachers', ctx.user.linkedTeacherId);
+
+  if(!teacher){
+    container.innerHTML = `
+      ${UI.pageHeader('Portal', 'Teacher Portal')}
+      <div class="card">${UI.emptyState('Your account isn\'t linked to a staff record yet',
+        'Ask a Super Admin to add you in Academic Staff, then link your login to that record in User Management — this connects your login to your classes and homework.')}</div>
+    `;
+    return;
+  }
+
   const myClasses = (teacher.classes && teacher.classes.length) ? teacher.classes : [];
   const homework = DB.all('assignments').filter(a=>myClasses.includes(a.class));
   const students = DB.all('students').filter(s=>myClasses.includes(s.class));

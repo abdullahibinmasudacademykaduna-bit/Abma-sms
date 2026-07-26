@@ -60,13 +60,19 @@ function notifySalaryPaidForMonth(collection, record, key){
   const label = `${MONTH_NAMES[Number(m)-1]} ${y}`;
   const linkedField = collection==='teachers' ? 'linkedTeacherId' : 'linkedStaffId';
   const user = DB.all('users').find(u => u[linkedField] === record.id);
-  DB.add('activities', {
-    text: `Your salary for ${label} (${UI.fmtMoney(record.salary)}) has been paid.`,
-    type: 'salary',
-    time: 'Just now',
-    read: false,
-    forUserId: user ? user.id : null,
-  });
+  // Only create a notification when it can be aimed at the actual
+  // person — falling back to forUserId:null would broadcast it to
+  // every signed-in account (including whoever's doing the paying),
+  // which is misleading when there's genuinely no one specific to tell.
+  if(user){
+    DB.add('activities', {
+      text: `Your salary for ${label} (${UI.fmtMoney(record.salary)}) has been paid.`,
+      type: 'salary',
+      time: 'Just now',
+      read: false,
+      forUserId: user.id,
+    });
+  }
   return user;
 }
 
