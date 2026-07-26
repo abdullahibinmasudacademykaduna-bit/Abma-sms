@@ -410,6 +410,15 @@ window.APP = (function(){
     document.querySelectorAll('.nav-item').forEach(n=> n.classList.toggle('active', n.dataset.route===key));
     const root = document.getElementById('page-root');
     root.innerHTML = '';
+    // Pull the freshest copy of the signed-in user's own record before
+    // rendering. Firestore's live listener keeps DB's cache current,
+    // but the `currentUser` variable set at login time doesn't
+    // automatically follow live edits — e.g. an admin linking this
+    // account to a staff record after the person already logged in.
+    // Re-deriving here means every navigation reflects the latest
+    // data instead of whatever was true at sign-in.
+    const freshUser = DB.get('users', currentUser.id);
+    if(freshUser) currentUser = {...freshUser, id: currentUser.id};
     const mod = MODULES[key] || MODULES.dashboard;
     try{
       mod(root, {user: currentUser});
