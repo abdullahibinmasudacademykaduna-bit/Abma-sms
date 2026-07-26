@@ -1,16 +1,36 @@
 /* Greenwood SMS — Student / Teacher / Staff management */
 window.MODULES = window.MODULES || {};
 
-/* Nursery + Primary only. Order matters — used for promotion "next class" logic. */
-const CLASS_NAMES = ['Pre-Nursery','Nursery 1','Nursery 2','Nursery 3','Primary 1','Primary 2','Primary 3','Primary 4','Primary 5','Primary 6'];
+/* Nursery + Primary suggestions only — used as datalist suggestions
+   when adding a class, and as a fallback so dropdowns aren't empty
+   before any real classes exist. The actual list of classes lives in
+   the 'classes' collection now (see getClassList/getClassNames below)
+   so schools can add, rename, reorder, and delete classes freely
+   instead of being stuck with this fixed set. */
+const DEFAULT_CLASS_NAMES = ['Pre-Nursery','Nursery 1','Nursery 2','Nursery 3','Primary 1','Primary 2','Primary 3','Primary 4','Primary 5','Primary 6'];
+
+/* Real classes, sorted by their "order" field (used for promotion
+   sequencing — see nextClassName). Classes without an explicit order
+   (e.g. old data) sort after ones that have it, in creation order. */
+function getClassList(){
+  const rows = DB.all('classes');
+  if(!rows.length) return DEFAULT_CLASS_NAMES.map((name,i)=>({name, capacity:30, order:i, level: name.startsWith('Primary')?'primary':'nursery'}));
+  return rows.slice().sort((a,b)=> (a.order??9999) - (b.order??9999));
+}
+function getClassNames(){
+  return getClassList().map(c=>c.name);
+}
 
 function classLevel(className){
+  const rec = DB.all('classes').find(c=>c.name===className);
+  if(rec && rec.level) return rec.level;
   return (className||'').startsWith('Primary') ? 'primary' : 'nursery';
 }
 function nextClassName(className){
-  const i = CLASS_NAMES.indexOf(className);
-  if(i===-1 || i===CLASS_NAMES.length-1) return null; // last class = about to graduate
-  return CLASS_NAMES[i+1];
+  const names = getClassNames();
+  const i = names.indexOf(className);
+  if(i===-1 || i===names.length-1) return null; // last class = about to graduate
+  return names[i+1];
 }
 
 const NURSERY_SUBJECTS = ['Numeracy','Literacy','Basic Science','Social Habits','Rhymes & Phonics','Drawing & Colouring','Physical & Health Education'];
@@ -37,7 +57,7 @@ function getScopedClasses(ctx){
 /* Classes a module's dropdowns/filters should offer right now. */
 function visibleClasses(ctx){
   const scoped = getScopedClasses(ctx);
-  return scoped === null ? CLASS_NAMES.slice() : scoped;
+  return scoped === null ? getClassNames() : scoped;
 }
 
 /* ---------------- Salary ledger (shared by Academic & Non-Academic Staff) ----------------
@@ -158,7 +178,7 @@ MODULES.students = function(container, ctx){
       {name:'name', label:'Full name', required:true, full:true},
       {name:'admissionNo', label:'Admission No.', required:true},
       {name:'gender', label:'Gender', type:'select', options:['Male','Female']},
-      {name:'class', label:'Class', type:'select', options:CLASS_NAMES, required:true},
+      {name:'class', label:'Class', type:'select', options:getClassNames(), required:true},
       {name:'dob', label:'Date of birth', type:'date'},
       {name:'guardian', label:'Guardian name'},
       {name:'phone', label:'Phone'},
@@ -173,7 +193,7 @@ MODULES.students = function(container, ctx){
     UI.openModal({
       title: record ? 'Edit student' : 'Add student',
       large:true,
-      bodyHTML: UI.renderForm(fields, record||{status:'Active', gender:'Male', class:CLASS_NAMES[0]}),
+      bodyHTML: UI.renderForm(fields, record||{status:'Active', gender:'Male', class:getClassNames()[0]}),
       footHTML: `<button class="btn btn-outline" data-cancel>Cancel</button><button class="btn btn-primary" data-save>${record?'Save changes':'Add student'}</button>`,
       onMount:(modal, close)=>{
         modal.querySelector('[data-cancel]').addEventListener('click', close);
@@ -268,7 +288,7 @@ MODULES.teachers = function(container, ctx){
       {name:'joined', label:'Date joined', type:'date'},
       {name:'status', label:'Status', type:'select', options:['Active','Inactive','On Leave']},
       {name:'salary', label:'Monthly salary', type:'number'},
-      {name:'classes', label:'Assigned classes — a class can have more than one teacher, and a teacher can be assigned to more than one class', type:'multiselect', options:CLASS_NAMES, full:true},
+      {name:'classes', label:'Assigned classes — a class can have more than one teacher, and a teacher can be assigned to more than one class', type:'multiselect', options:getClassNames(), full:true},
     ];
   }
   function openForm(record){

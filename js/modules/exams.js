@@ -366,7 +366,7 @@ MODULES.exams = function(container, ctx){
       <div class="card">
         <div class="section-title">
           Batch promote students
-          <select id="promo-class" style="width:auto;">${CLASS_NAMES.map(c=>`<option value="${c}">${c}</option>`).join('')}</select>
+          <select id="promo-class" style="width:auto;">${getClassNames().map(c=>`<option value="${c}">${c}</option>`).join('')}</select>
         </div>
         <p class="row-sub" style="margin-bottom:14px;">Select students to move up to the next class at the end of term/year.</p>
         <div id="promo-list"></div>
@@ -386,7 +386,7 @@ MODULES.exams = function(container, ctx){
         ${students.length ? `
         <div style="margin-top:14px;display:flex;gap:10px;align-items:center;justify-content:flex-end;">
           <span class="row-sub">Promote checked students to:</span>
-          <select id="promo-target" style="width:auto;">${next ? `<option value="${next}">${next}</option>` : `<option value="">Graduate (no further class)</option>`}${CLASS_NAMES.map(c=>`<option value="${c}">${c}</option>`).join('')}</select>
+          <select id="promo-target" style="width:auto;">${next ? `<option value="${next}">${next}</option>` : `<option value="">Graduate (no further class)</option>`}${getClassNames().map(c=>`<option value="${c}">${c}</option>`).join('')}</select>
           <button class="btn btn-primary" id="promo-go">${ICONS.check(15)} Promote selected</button>
         </div>` : ''}
       `;

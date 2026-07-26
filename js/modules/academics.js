@@ -22,65 +22,100 @@ MODULES.classes = function(container, ctx){
     });
   });
 
-  function classFields(){
+  function classFields(isNew){
     return [
-      {name:'name', label:'Class name', type:'select', options:CLASS_NAMES, required:true},
+      isNew
+        ? {name:'name', label:'Class name', type:'text-datalist', options:DEFAULT_CLASS_NAMES, required:true, full:true, placeholder:'Type a class name, e.g. Primary 7'}
+        : {name:'name', label:'Class name', full:true},
       {name:'capacity', label:'Capacity', type:'number'},
+      {name:'level', label:'Level', type:'select', options:[{value:'nursery',label:'Nursery'},{value:'primary',label:'Primary'}]},
     ];
   }
 
   function renderClasses(){
-    const rows = CLASS_NAMES.map(name=>{
-      const rec = DB.all('classes').find(c=>c.name===name) || {name, capacity:30};
-      const enrolled = DB.all('students').filter(s=>s.class===name).length;
-      const teachers = DB.all('teachers').filter(t=>t.classes && t.classes.includes(name)).map(t=>t.name);
-      return {...rec, enrolled, teachers, level: classLevel(name)};
-    });
+    const list = getClassList();
     body.innerHTML = `<div class="grid grid-3"></div>`;
     const grid = body.querySelector('.grid');
-    grid.innerHTML = rows.map(c=>`
+    grid.innerHTML = list.map((c,i)=>{
+      const enrolled = DB.all('students').filter(s=>s.class===c.name).length;
+      const teachers = DB.all('teachers').filter(t=>t.classes && t.classes.includes(c.name)).map(t=>t.name);
+      return `
       <div class="card">
         <div style="display:flex;justify-content:space-between;align-items:flex-start;">
           <div>
-            <h3 style="font-size:17px;">${c.name} ${UI.badge(c.level==='primary'?'Primary':'Nursery','blue')}</h3>
-            <div class="row-sub" style="margin-top:4px;">${c.teachers.length ? c.teachers.join(', ') : 'No teacher assigned'}</div>
+            <h3 style="font-size:17px;">${c.name} ${UI.badge(classLevel(c.name)==='primary'?'Primary':'Nursery','blue')}</h3>
+            <div class="row-sub" style="margin-top:4px;">${teachers.length ? teachers.join(', ') : 'No teacher assigned'}</div>
           </div>
-          ${canEdit? `<button class="icon-action" data-edit="${c.name}">${ICONS.edit(13)}</button>`:''}
+          ${canEdit? `<div style="display:flex;gap:4px;">
+            ${i>0?`<button class="icon-action" data-move-up="${c.id||c.name}" title="Move up" style="font-weight:700;">↑</button>`:''}
+            <button class="icon-action" data-edit="${c.id||c.name}">${ICONS.edit(13)}</button>
+            <button class="icon-action" data-del="${c.id||c.name}" data-name="${c.name}">${ICONS.trash(13)}</button>
+          </div>`:''}
         </div>
-        <div class="bar-track" style="margin-top:16px;"><div class="bar-fill" style="width:${Math.min(100,Math.round(c.enrolled/(c.capacity||30)*100))}%"></div></div>
+        <div class="bar-track" style="margin-top:16px;"><div class="bar-fill" style="width:${Math.min(100,Math.round(enrolled/(c.capacity||30)*100))}%"></div></div>
         <div style="display:flex;justify-content:space-between;margin-top:8px;font-size:12px;color:var(--ink-faint);">
-          <span>${c.enrolled} enrolled</span><span>Capacity ${c.capacity||30}</span>
+          <span>${enrolled} enrolled</span><span>Capacity ${c.capacity||30}</span>
         </div>
-      </div>`).join('');
+      </div>`;
+    }).join('') || UI.emptyState('No classes yet', 'Click "Add Class" above to create your first one.');
+
     if(canEdit){
       grid.querySelectorAll('[data-edit]').forEach(b=>b.addEventListener('click', ()=>{
-        const existing = DB.all('classes').find(c=>c.name===b.dataset.edit);
-        openClassForm(existing || {name:b.dataset.edit, capacity:30});
+        const existing = DB.all('classes').find(c=>(c.id||c.name)===b.dataset.edit);
+        openClassForm(existing, false);
+      }));
+      grid.querySelectorAll('[data-del]').forEach(b=>b.addEventListener('click', ()=>{
+        const name = b.dataset.name;
+        const enrolled = DB.all('students').filter(s=>s.class===name).length;
+        const warning = enrolled
+          ? `${enrolled} student${enrolled===1?'':'s'} ${enrolled===1?'is':'are'} currently enrolled in ${name}. Deleting it won't remove those students, but they'll need to be moved to another class. Delete anyway?`
+          : `Delete ${name}? This can't be undone.`;
+        UI.confirmDialog(warning, ()=>{
+          const rec = DB.all('classes').find(c=>(c.id||c.name)===b.dataset.del);
+          if(rec) DB.remove('classes', rec.id);
+          UI.toast('Class deleted'); renderClasses();
+        });
+      }));
+      grid.querySelectorAll('[data-move-up]').forEach(b=>b.addEventListener('click', ()=>{
+        const idx = list.findIndex(c=>(c.id||c.name)===b.dataset.moveUp);
+        if(idx<=0) return;
+        const a = list[idx], p = list[idx-1];
+        // Both need to be real DB records to persist an order swap —
+        // synthesize one if this is still a default/unsaved suggestion.
+        const ensure = (c)=> DB.all('classes').find(x=>x.name===c.name) || DB.add('classes', {name:c.name, capacity:c.capacity||30, level:c.level, order:c.order});
+        const recA = ensure(a), recP = ensure(p);
+        DB.update('classes', recA.id, {order: p.order ?? idx-1});
+        DB.update('classes', recP.id, {order: a.order ?? idx});
+        renderClasses();
       }));
     }
   }
 
-  function openClassForm(record){
+  function openClassForm(record, isNew){
+    const f = classFields(isNew);
+    const defaults = record || {capacity:30, level:'nursery'};
     UI.openModal({
-      title:'Edit class capacity',
-      bodyHTML: `<div class="form-grid"><div class="field"><label>Class</label><input value="${record.name}" disabled/></div><div class="field"><label>Capacity</label><input type="number" name="capacity" value="${record.capacity||30}"/></div></div>`,
+      title: isNew ? 'Add class' : 'Edit class',
+      bodyHTML: UI.renderForm(f, defaults),
       footHTML:`<button class="btn btn-outline" data-cancel>Cancel</button><button class="btn btn-primary" data-save>Save</button>`,
       onMount:(modal, close)=>{
         modal.querySelector('[data-cancel]').addEventListener('click', close);
         modal.querySelector('[data-save]').addEventListener('click', ()=>{
-          const capacity = Number(modal.querySelector('[name="capacity"]').value)||30;
-          const existing = DB.all('classes').find(c=>c.name===record.name);
-          if(existing) DB.update('classes', existing.id, {capacity});
-          else DB.add('classes', {name:record.name, capacity});
-          UI.toast('Class updated'); close(); renderClasses();
+          const data = UI.readForm(modal, f);
+          if(!data.name || !data.name.trim()){ UI.toast('Class name is required','error'); return; }
+          if(record && record.id){
+            DB.update('classes', record.id, data);
+          } else {
+            if(DB.all('classes').some(c=>c.name===data.name.trim())){ UI.toast('A class with that name already exists','error'); return; }
+            const maxOrder = DB.all('classes').reduce((m,c)=>Math.max(m, c.order??0), -1);
+            DB.add('classes', {...data, name:data.name.trim(), order: maxOrder+1});
+          }
+          UI.toast('Class saved'); close(); renderClasses();
         });
       }
     });
   }
-  container.querySelector('#add-class')?.addEventListener('click', ()=>{
-    const unset = CLASS_NAMES.find(n=>!DB.all('classes').some(c=>c.name===n));
-    openClassForm({name: unset || CLASS_NAMES[0], capacity:30});
-  });
+  container.querySelector('#add-class')?.addEventListener('click', ()=> openClassForm(null, true));
 
   function subjectFields(){
     return [

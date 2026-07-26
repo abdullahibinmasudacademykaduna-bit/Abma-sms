@@ -156,11 +156,11 @@ MODULES.homework = makeCrudModule({
   editRoles:['Super Admin','Principal','Head Teacher','Teacher'],
   searchKeys:['title','subject'],
   scopeByClass:true,
-  filters:[{key:'class', label:'Class', options: CLASS_NAMES}, {key:'status', label:'Status', options:['Open','Closed']}],
+  filters:[{key:'class', label:'Class', options: getClassNames()}, {key:'status', label:'Status', options:['Open','Closed']}],
   defaults:{status:'Open'},
   fields: () => [
     {name:'title', label:'Title', required:true, full:true},
-    {name:'class', label:'Class', type:'select', options:CLASS_NAMES},
+    {name:'class', label:'Class', type:'select', options:getClassNames()},
     {name:'subject', label:'Subject / Activity', type:'select', options:[...NURSERY_SUBJECTS, ...PRIMARY_SUBJECTS]},
     {name:'dueDate', label:'Due date', type:'date'},
     {name:'status', label:'Status', type:'select', options:['Open','Closed']},

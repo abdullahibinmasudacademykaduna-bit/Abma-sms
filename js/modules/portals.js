@@ -136,7 +136,7 @@ MODULES.reports = function(container, ctx){
   container.querySelector('#print-report').addEventListener('click', ()=>window.print());
 
   const byClass = {};
-  CLASS_NAMES.forEach(c=> byClass[c] = students.filter(s=>s.class===c).length);
+  getClassNames().forEach(c=> byClass[c] = students.filter(s=>s.class===c).length);
   CHARTS.bar('rep-enroll', {labels:Object.keys(byClass), datasets:[{label:'Students', data:Object.values(byClass)}]});
 
   CHARTS.line('rep-att', {

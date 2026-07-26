@@ -108,7 +108,7 @@ MODULES.fees = function(container, ctx){
       rows,
       searchKeys:['studentName'],
       searchPlaceholder:'Search by student…',
-      filters:[{key:'status', label:'Status', options:['Paid','Partial','Pending']}, {key:'class', label:'Class', options:CLASS_NAMES}],
+      filters:[{key:'status', label:'Status', options:['Paid','Partial','Pending']}, {key:'class', label:'Class', options:getClassNames()}],
       columns:[
         {label:'Student', key:'studentName'},
         {label:'Class', key:'class'},
