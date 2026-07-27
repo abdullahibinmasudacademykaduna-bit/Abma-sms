@@ -121,6 +121,22 @@ const DB = (function(){
     return state[name];
   }
 
+  // Directly corrects one record in the local cache from an
+  // authoritative source (e.g. a forced server-only read), without
+  // touching Firestore. Needed because the general per-collection
+  // listeners resolve on whichever snapshot arrives first — which,
+  // with offline persistence, can be a stale local-cache copy. A
+  // one-off authoritative read elsewhere (like auth.firebase.js's
+  // login check) would otherwise get silently overwritten again the
+  // next time something reads from this general cache.
+  function primeCache(name, record){
+    if(!record || !record.id) return;
+    if(!state[name]) state[name] = [];
+    const idx = state[name].findIndex(r=>r.id===record.id);
+    if(idx===-1) state[name].push(record);
+    else state[name][idx] = record;
+  }
+
   function all(name){ return collection(name).slice(); }
 
   function get(name, id){ return collection(name).find(r => r.id === id) || null; }
@@ -222,5 +238,5 @@ const DB = (function(){
     return jobs.reduce((chain, job) => chain.then(job), Promise.resolve());
   }
 
-  return { ready, init, all, get, add, update, remove, count, save, reset, exportJSON, importJSON, uid, collection, settings, updateSettings };
+  return { ready, init, all, get, add, update, remove, count, save, reset, exportJSON, importJSON, uid, collection, settings, updateSettings, primeCache };
 })();

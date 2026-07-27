@@ -67,7 +67,16 @@ const AUTH = (function(){
   // authoritative, server-only read for that one specific check.
   function fetchMyUserDocFromServer(uid){
     return firebase.firestore().collection('users').doc(uid).get({source:'server'})
-      .then(doc=> doc.exists ? {id: doc.id, ...doc.data()} : null)
+      .then(doc=>{
+        const record = doc.exists ? {id: doc.id, ...doc.data()} : null;
+        // Also correct the shared cache db.firebase.js keeps for the
+        // whole 'users' collection — otherwise the next thing that
+        // reads DB.get('users', uid) (e.g. app.js re-syncing on every
+        // navigation) can silently overwrite cachedUser again with
+        // whatever stale snapshot the general listener saw first.
+        if(record) DB.primeCache('users', record);
+        return record;
+      })
       .catch(err=>{
         console.error('Server read of /users/'+uid+' failed, falling back to cache:', err);
         return DB.get('users', uid); // offline fallback — better a possibly-stale answer than none
