@@ -1,9 +1,20 @@
 /* Greenwood SMS — service worker
    Caches the app shell so the app keeps working offline.
-   All data lives in localStorage on the client, so once the
-   shell is cached the whole app is usable without a network. */
+   All data lives in localStorage (demo) or Firestore (production) —
+   either way, once the shell is cached the whole app is usable
+   without a network.
 
-const CACHE_NAME = 'greenwood-sms-v4';
+   IMPORTANT: bump CACHE_NAME whenever app-shell files change. The
+   fetch handler below is cache-first for same-origin files, so once
+   something is cached it's served from cache FOREVER — pushing new
+   code to GitHub has zero effect on returning visitors until the
+   browser detects the service worker script itself changed (which
+   only happens when this file's bytes differ), which is what
+   triggers the cache purge in 'activate' below. A stale CACHE_NAME
+   here is why a real fix can be live on GitHub yet look like it never
+   deployed for anyone who's already visited the site before. */
+
+const CACHE_NAME = 'greenwood-sms-v5';
 const APP_SHELL = [
   './',
   './index.html',
@@ -12,6 +23,9 @@ const APP_SHELL = [
   './js/icons.js',
   './js/db.js',
   './js/auth.js',
+  './js/db.firebase.js',
+  './js/auth.firebase.js',
+  './js/firebase-config.js',
   './js/ui.js',
   './js/charts.js',
   './js/modules/dashboard.js',
@@ -20,6 +34,7 @@ const APP_SHELL = [
   './js/modules/attendance.js',
   './js/modules/exams.js',
   './js/modules/fees.js',
+  './js/modules/expenditure.js',
   './js/modules/timetable.js',
   './js/modules/library.js',
   './js/modules/generic.js',
@@ -33,7 +48,13 @@ const APP_SHELL = [
 
 self.addEventListener('install', event=>{
   event.waitUntil(
-    caches.open(CACHE_NAME).then(cache => cache.addAll(APP_SHELL)).catch(()=>{})
+    caches.open(CACHE_NAME).then(cache =>
+      // addAll() fails the whole install if ANY url 404s. firebase-config.js
+      // only exists once a production deploy creates it (not in the demo
+      // kit before setup), so cache what we can rather than let one
+      // missing file block caching everything else.
+      Promise.all(APP_SHELL.map(url => cache.add(url).catch(()=>{})))
+    )
   );
   self.skipWaiting();
 });
@@ -51,16 +72,23 @@ self.addEventListener('fetch', event=>{
   const req = event.request;
   if(req.method !== 'GET') return;
 
-  // Network-first for CDN (Chart.js, fonts) so updates aren't stuck stale;
-  // cache-first for same-origin app shell so it works offline instantly.
   const url = new URL(req.url);
   if(url.origin === self.location.origin){
+    // Network-first for the app's own files: always fetch the latest
+    // version when online, and only serve the cached copy if the
+    // network request fails (offline support). This is the opposite
+    // of the old cache-first approach, which — combined with a static
+    // CACHE_NAME — meant a real push to GitHub could sit there fixed
+    // and correct while every returning visitor kept silently loading
+    // the first-ever cached version, looking exactly like the fix
+    // "didn't work." Costs a little raw load speed; worth it for an
+    // app that's still being actively fixed.
     event.respondWith(
-      caches.match(req).then(cached => cached || fetch(req).then(res=>{
+      fetch(req).then(res=>{
         const resClone = res.clone();
         caches.open(CACHE_NAME).then(cache => cache.put(req, resClone));
         return res;
-      }).catch(()=> cached))
+      }).catch(()=> caches.match(req))
     );
   } else {
     event.respondWith(

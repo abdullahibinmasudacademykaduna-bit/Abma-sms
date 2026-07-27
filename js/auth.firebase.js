@@ -57,15 +57,29 @@ const AUTH = (function(){
   // auth is known, rather than before.
   const ready = authStateReady;
 
+  // The general DB cache (DB.init()'s listeners) resolves as soon as
+  // ANY snapshot arrives — which, with offline persistence enabled,
+  // can be served from local cache before the server has confirmed a
+  // brand-new sign-in's own /users/{uid} doc actually exists. That
+  // race is harmless for most pages (they just update again a moment
+  // later), but it's exactly wrong for the one check that decides
+  // whether to sign someone out as "no role assigned." This does an
+  // authoritative, server-only read for that one specific check.
+  function fetchMyUserDocFromServer(uid){
+    return firebase.firestore().collection('users').doc(uid).get({source:'server'})
+      .then(doc=> doc.exists ? {id: doc.id, ...doc.data()} : null)
+      .catch(err=>{
+        console.error('Server read of /users/'+uid+' failed, falling back to cache:', err);
+        return DB.get('users', uid); // offline fallback — better a possibly-stale answer than none
+      });
+  }
+
   firebase.auth().onAuthStateChanged(fbUser=>{
     if(!fbUser){ cachedUser = null; readyResolve(); return; }
     // Session restore on page reload while already signed in: Firestore
     // listeners were never attached this page-load (they're only ever
     // attached inside login()/here, post-auth), so attach them now.
-    DB.init().then(()=>{
-      // /users/{uid} doc id matches the Firebase Auth uid exactly —
-      // that's how a signed-in session maps to a role/name/links.
-      const record = DB.get('users', fbUser.uid);
+    DB.init().then(()=> fetchMyUserDocFromServer(fbUser.uid)).then(record=>{
       cachedUser = record ? {...record, id: fbUser.uid} : null;
       if(!cachedUser){
         console.error(`No /users/${fbUser.uid} Firestore doc found for signed-in account ${fbUser.email}. They're authenticated but have no role — see FIREBASE_MIGRATION.md.`);
@@ -83,8 +97,7 @@ const AUTH = (function(){
       // whole page's lifetime where request.auth is populated, so it's
       // also the first point where firestore.rules will allow reading
       // anything beyond the public login-screen stats.
-      return DB.init().then(()=>{
-        const record = DB.get('users', cred.user.uid);
+      return DB.init().then(()=> fetchMyUserDocFromServer(cred.user.uid)).then(record=>{
         if(!record){
           return firebase.auth().signOut().then(()=>{
             throw new Error('Your account has no role assigned yet. Contact your Super Admin.');
