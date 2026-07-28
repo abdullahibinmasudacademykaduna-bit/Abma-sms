@@ -1,6 +1,34 @@
 /* Greenwood SMS — Settings module */
 window.MODULES = window.MODULES || {};
 
+/* Resizes and center-crops any uploaded image to a small square
+   (maxSize x maxSize) JPEG, returned as a data URL. Two problems this
+   solves at once: an unprocessed phone photo (often several MB, and
+   rarely square) risks silently exceeding Firestore's 1MB-per-document
+   limit on the settings doc, and stored as-is it stretches oddly in
+   the fixed-size logo preview and print letterhead. Center-cropping
+   here means whatever shape the original photo is, the result always
+   looks like a clean square logo instead of a stretched/off-center
+   photo. */
+function resizeLogoImage(dataUrl, maxSize){
+  return new Promise((resolve, reject)=>{
+    const img = new Image();
+    img.onload = ()=>{
+      const side = Math.min(img.width, img.height);
+      const sx = (img.width - side) / 2;
+      const sy = (img.height - side) / 2;
+      const canvas = document.createElement('canvas');
+      canvas.width = maxSize;
+      canvas.height = maxSize;
+      const ctx2d = canvas.getContext('2d');
+      ctx2d.drawImage(img, sx, sy, side, side, 0, 0, maxSize, maxSize);
+      resolve(canvas.toDataURL('image/jpeg', 0.85));
+    };
+    img.onerror = reject;
+    img.src = dataUrl;
+  });
+}
+
 MODULES.settings = function(container, ctx){
   const canEdit = ['Super Admin','Principal'].includes(ctx.user.role);
   const s = DB.settings();
@@ -60,9 +88,13 @@ MODULES.settings = function(container, ctx){
         if(!file) return;
         const reader = new FileReader();
         reader.onload = ev=>{
-          saveSettings({logoDataUrl: ev.target.result});
-          body.querySelector('#logo-preview').innerHTML = `<img src="${ev.target.result}" style="width:100%;height:100%;object-fit:cover;"/>`;
-          UI.toast('Logo updated');
+          resizeLogoImage(ev.target.result, 320).then(resized=>{
+            saveSettings({logoDataUrl: resized});
+            body.querySelector('#logo-preview').innerHTML = `<img src="${resized}" style="width:100%;height:100%;object-fit:cover;"/>`;
+            UI.toast('Logo updated');
+          }).catch(()=>{
+            UI.toast('Could not process that image — try a different file', 'error');
+          });
         };
         reader.readAsDataURL(file);
       });
