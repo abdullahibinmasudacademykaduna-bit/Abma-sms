@@ -275,7 +275,7 @@ MODULES.exams = function(container, ctx){
         // Step 1: save with a provisional (position-less) auto comment if left blank,
         // so this result counts toward the class ranking used in step 2.
         const payload = {
-          studentId, examId, subjects: subjectRows, overallTotal, behavioural,
+          studentId, examId, class: student.class, subjects: subjectRows, overallTotal, behavioural,
           remarkClass: typedClassRemark || autoComment(avg, null, null, false),
           remarkHead: canEditHeadRemark ? (typedHeadRemark || autoComment(avg, null, null, true)) : (existing?.remarkHead || autoComment(avg, null, null, true)),
           nextTermBegin: host.querySelector('#next-begin').value,
