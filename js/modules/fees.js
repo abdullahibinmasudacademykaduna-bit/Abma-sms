@@ -12,6 +12,32 @@ window.MODULES = window.MODULES || {};
 
 const FEE_CATEGORIES = ['Tuition','Feeding','Transport Levy','PTA Dues','Books & Materials','Uniform'];
 
+/* Called from Settings when a new term/session is started. Every
+   currently-active fee record gets archived (kept for history, hidden
+   from the normal Fee Collection view) — and for anyone who still had
+   an unpaid balance, a fresh "Previous Balance b/f" bill is created in
+   the new term so that debt doesn't just vanish, but also doesn't
+   clutter the new term's fresh billing with old line items. */
+function rolloverFeesForNewTerm(newTerm){
+  const activeFees = DB.all('fees').filter(f=>!f.archived);
+  let carriedCount = 0;
+  activeFees.forEach(f=>{
+    DB.update('fees', f.id, {archived:true});
+    if(f.balance > 0){
+      DB.add('fees', {
+        studentId: f.studentId,
+        term: newTerm,
+        items: [{category:'Previous Balance b/f', amount: f.balance}],
+        amount: f.balance, paid: 0, balance: f.balance, status: 'Pending',
+        dueDate: new Date().toISOString().slice(0,10),
+        carriedForward: true,
+      });
+      carriedCount++;
+    }
+  });
+  return { archivedCount: activeFees.length, carriedCount };
+}
+
 MODULES.fees = function(container, ctx){
   const canEdit = ['Super Admin','Principal','Accountant'].includes(ctx.user.role);
   const students = DB.all('students');
@@ -34,8 +60,9 @@ MODULES.fees = function(container, ctx){
   });
 
   /* ---------------- Fee Collection tab ---------------- */
+  let showArchived = false;
   function totals(){
-    const fees = DB.all('fees');
+    const fees = DB.all('fees').filter(f=>!f.archived);
     const total = fees.reduce((s,f)=>s+f.amount,0);
     const collected = fees.reduce((s,f)=>s+f.paid,0);
     return {total, collected, pending: total-collected, count: fees.length, owing: fees.filter(f=>f.status!=='Paid').length};
@@ -61,24 +88,29 @@ MODULES.fees = function(container, ctx){
         </div>
       </div>
       <div class="page-actions" style="margin-bottom:12px;justify-content:flex-end;display:flex;gap:8px;">
+        <button class="btn btn-outline" id="toggle-archived">${showArchived ? 'Hide previous terms' : 'Show previous terms'}</button>
         ${canEdit ? `<button class="btn btn-outline" id="export-fees">${ICONS.download(15)} Export</button>` : ''}
         ${canEdit ? `<button class="btn btn-primary" id="bill-student">${ICONS.plus(16)} Bill a Student</button>` : ''}
       </div>
       <div class="table-wrap" id="fee-tbl"></div>
     `;
 
+    const activeFees = DB.all('fees').filter(f=>!f.archived);
     const byCategory = {};
     const catalogNames = DB.all('feeItems').map(i=>i.name);
     (catalogNames.length ? catalogNames : FEE_CATEGORIES).forEach(cat=> byCategory[cat] = 0);
-    DB.all('fees').forEach(f=> (f.items||[]).forEach(it=> byCategory[it.category] = (byCategory[it.category]||0) + it.amount));
+    activeFees.forEach(f=> (f.items||[]).forEach(it=> byCategory[it.category] = (byCategory[it.category]||0) + it.amount));
     CHARTS.bar('fee-bar', {
       labels: Object.keys(byCategory),
       datasets:[{label:'Billed', data: Object.values(byCategory), color:'#2D6A4F'}]
     });
     const statusCounts = {Paid:0, Partial:0, Pending:0};
-    DB.all('fees').forEach(f=> statusCounts[f.status] = (statusCounts[f.status]||0)+1);
+    activeFees.forEach(f=> statusCounts[f.status] = (statusCounts[f.status]||0)+1);
     CHARTS.doughnut('fee-doughnut', {labels:Object.keys(statusCounts), data:Object.values(statusCounts), colors:['#2D6A4F','#DE9B3A','#C1443D']});
 
+    body.querySelector('#toggle-archived').addEventListener('click', ()=>{
+      showArchived = !showArchived; renderCollection();
+    });
     body.querySelector('#export-fees')?.addEventListener('click', ()=>{
       const rows = DB.all('fees').map(f=>({
         student: studentMap[f.studentId]?.name, class: studentMap[f.studentId]?.class,
@@ -103,7 +135,9 @@ MODULES.fees = function(container, ctx){
   }
 
   function renderTable(){
-    const rows = DB.all('fees').map(f=>({...f, studentName: studentMap[f.studentId]?.name || 'Unknown', class: studentMap[f.studentId]?.class}));
+    const rows = DB.all('fees')
+      .filter(f=> showArchived ? true : !f.archived)
+      .map(f=>({...f, studentName: studentMap[f.studentId]?.name || 'Unknown', class: studentMap[f.studentId]?.class}));
     UI.dataTable(body.querySelector('#fee-tbl'), {
       rows,
       searchKeys:['studentName'],
@@ -112,6 +146,7 @@ MODULES.fees = function(container, ctx){
       columns:[
         {label:'Student', key:'studentName'},
         {label:'Class', key:'class'},
+        {label:'Term', render:r=>`${r.term||'—'}${r.archived?' '+UI.badge('Archived','gray'):''}`},
         {label:'Billed', render:r=>UI.fmtMoney(r.amount)},
         {label:'Paid', render:r=>UI.fmtMoney(r.paid)},
         {label:'Balance', render:r=>UI.fmtMoney(r.balance)},
@@ -120,10 +155,23 @@ MODULES.fees = function(container, ctx){
       actions: r => `
         <button class="icon-action" data-view="${r.id}">${ICONS.eye(14)}</button>
         ${canEdit && r.status!=='Paid' ? `<button class="btn btn-sm btn-primary" data-pay="${r.id}">Collect</button>` : ''}
+        ${canEdit ? `<button class="icon-action" data-del="${r.id}">${ICONS.trash(14)}</button>` : ''}
       `,
       onRender:(el)=>{
         el.querySelectorAll('[data-pay]').forEach(b=>b.addEventListener('click', ()=>openCollect(DB.get('fees', b.dataset.pay))));
         el.querySelectorAll('[data-view]').forEach(b=>b.addEventListener('click', ()=>viewBreakdown(DB.get('fees', b.dataset.view))));
+        el.querySelectorAll('[data-del]').forEach(b=>b.addEventListener('click', ()=>{
+          const fee = DB.get('fees', b.dataset.del);
+          const student = studentMap[fee.studentId];
+          const warn = fee.paid > 0
+            ? `${student?.name||'This student'} has already paid ${UI.fmtMoney(fee.paid)} against this bill. Deleting it removes that payment record too — this can't be undone. Delete anyway?`
+            : `Delete this bill for ${student?.name||'this student'}? This can't be undone.`;
+          UI.confirmDialog(warn, ()=>{
+            DB.remove('fees', b.dataset.del);
+            UI.toast('Fee record deleted');
+            renderCollection();
+          });
+        }));
       }
     });
   }

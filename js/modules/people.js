@@ -269,7 +269,72 @@ MODULES.students = function(container, ctx){
           <div class="card-flat"><div class="row-sub">Blood group</div><div class="row-name">${s.bloodGroup||'—'}</div></div>
           <div class="card-flat"><div class="row-sub">Fee balance</div><div class="row-name">${fee?UI.fmtMoney(fee.balance):'—'}</div></div>
         </div>`,
-      footHTML:`<button class="btn btn-outline" data-close>Close</button>`
+      footHTML:`<button class="btn btn-outline" data-attendance style="margin-right:auto;">${ICONS.attendance(14)} Attendance History</button><button class="btn btn-outline" data-close>Close</button>`,
+      onMount:(modal)=>{
+        modal.querySelector('[data-attendance]').addEventListener('click', ()=> openStudentAttendance(s));
+      }
+    });
+  }
+
+  /* Attendance is normally only ever entered, day by day, from the
+     Attendance page — there was no way to look back at a student's
+     history, or fix a mistake (wrong student marked, wrong status
+     picked, a stray entry on a non-school day). This is that missing
+     view: every record for this student, editable in place, plus a
+     delete for entries that shouldn't exist at all. */
+  function openStudentAttendance(s){
+    const canEditAttendance = ['Super Admin','Principal','Head Teacher','Teacher'].includes(ctx.user.role);
+    function records(){
+      return DB.all('attendanceRecords').filter(r=>r.studentId===s.id).sort((a,b)=> b.date.localeCompare(a.date));
+    }
+    function summary(recs){
+      const total = recs.length;
+      const present = recs.filter(r=>attendanceCountsPresent(r.status)).length;
+      const pct = total ? Math.round(present/total*100) : 0;
+      return `${present}/${total} days present (${pct}%)`;
+    }
+    function bodyHTML(){
+      const recs = records();
+      return `
+        <div class="row-sub" style="margin-bottom:14px;">${summary(recs)}</div>
+        <div id="att-hist-list">
+          ${recs.length ? recs.map(r=>`
+            <div class="activity-item">
+              <div class="activity-dot" style="background:${attendanceDotColor(r.status)}"></div>
+              <div style="flex:1;"><div class="t">${UI.fmtDate(r.date)}</div></div>
+              ${canEditAttendance ? `
+                <select data-status="${r.id}" style="width:auto;margin-right:8px;">
+                  ${ATTENDANCE_STATUSES.map(st=>`<option value="${st}" ${r.status===st?'selected':''}>${st}</option>`).join('')}
+                </select>
+                <button class="icon-action" data-del-att="${r.id}">${ICONS.trash(13)}</button>
+              ` : UI.badge(r.status, attendanceBadgeTone(r.status))}
+            </div>`).join('') : UI.emptyState('No attendance recorded yet for this student')}
+        </div>
+      `;
+    }
+    UI.openModal({
+      title: `Attendance — ${s.name}`,
+      large:true,
+      bodyHTML: bodyHTML(),
+      footHTML:`<button class="btn btn-primary" data-close>Close</button>`,
+      onMount:(modal)=>{
+        function rewire(){
+          modal.querySelector('.modal-body').innerHTML = bodyHTML();
+          modal.querySelectorAll('[data-status]').forEach(sel=>sel.addEventListener('change', ()=>{
+            DB.update('attendanceRecords', sel.dataset.status, {status: sel.value});
+            UI.toast('Attendance corrected');
+            rewire();
+          }));
+          modal.querySelectorAll('[data-del-att]').forEach(b=>b.addEventListener('click', ()=>{
+            UI.confirmDialog('Remove this attendance entry entirely? Use this for records that shouldn\'t exist (wrong student, wrong day) rather than for a genuine absence.', ()=>{
+              DB.remove('attendanceRecords', b.dataset.delAtt);
+              UI.toast('Attendance entry removed');
+              rewire();
+            });
+          }));
+        }
+        rewire();
+      }
     });
   }
 };

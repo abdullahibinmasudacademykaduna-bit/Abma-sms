@@ -68,6 +68,7 @@ MODULES.attendance = function(container, ctx){
     const records = DB.all('attendanceRecords');
     const wrap = container.querySelector('#att-table');
     wrap.innerHTML = `
+      <div class="row-sub" style="margin-bottom:10px;">Tap a status to select it. Press and hold <b>Absent</b> for Sick or Travel — an excused absence, shown to parents on Open Day.</div>
       <div class="table-wrap">
         <div class="scroll-x"><table>
           <thead><tr><th>Student</th><th>Admission No.</th><th>Status</th></tr></thead>
@@ -80,7 +81,9 @@ MODULES.attendance = function(container, ctx){
                 <td class="row-sub">${s.admissionNo}</td>
                 <td>
                   <div class="chip-list">
-                    ${['Present','Absent','Late'].map(st=>`<span class="chip ${status===st?'active':''}" data-status="${st}">${st}</span>`).join('')}
+                    <span class="chip ${status==='Present'?'active':''}" data-status="Present">Present</span>
+                    <span class="chip ${['Absent','Sick','Travel'].includes(status)?'active':''}" data-status="Absent" data-longpress-absent>${['Sick','Travel'].includes(status) ? status : 'Absent'}</span>
+                    <span class="chip ${status==='Late'?'active':''}" data-status="Late">Late</span>
                   </div>
                 </td>
               </tr>`;
@@ -96,12 +99,52 @@ MODULES.attendance = function(container, ctx){
         chip.addEventListener('click', ()=>{
           chip.parentElement.querySelectorAll('.chip').forEach(c=>c.classList.remove('active'));
           chip.classList.add('active');
+          chip.dataset.status = chip.dataset.longpressAbsent!==undefined ? 'Absent' : chip.dataset.status;
+          if(chip.dataset.longpressAbsent!==undefined) chip.textContent = 'Absent';
         });
       });
+
+      // Press-and-hold the Absent chip to pick a specific reason
+      // instead of a plain unexplained absence.
+      wrap.querySelectorAll('[data-longpress-absent]').forEach(chip=>{
+        let timer = null, longPressed = false;
+        const openReasonMenu = ()=>{
+          longPressed = true;
+          document.querySelectorAll('.att-reason-menu').forEach(m=>m.remove());
+          const rect = chip.getBoundingClientRect();
+          const menu = document.createElement('div');
+          menu.className = 'att-reason-menu';
+          menu.style.cssText = `position:fixed; top:${rect.bottom+6}px; left:${rect.left}px; background:var(--surface,#fff); border:1px solid var(--border); border-radius:10px; box-shadow:0 6px 20px rgba(0,0,0,.15); padding:6px; z-index:200; display:flex; gap:6px;`;
+          menu.innerHTML = `<button class="btn btn-sm btn-outline" data-reason="Sick">Sick</button><button class="btn btn-sm btn-outline" data-reason="Travel">Travel</button>`;
+          document.body.appendChild(menu);
+          menu.querySelectorAll('[data-reason]').forEach(btn=>btn.addEventListener('click', ()=>{
+            chip.parentElement.querySelectorAll('.chip').forEach(c=>c.classList.remove('active'));
+            chip.classList.add('active');
+            chip.dataset.status = btn.dataset.reason;
+            chip.textContent = btn.dataset.reason;
+            menu.remove();
+          }));
+          const dismiss = (e)=>{ if(!menu.contains(e.target)){ menu.remove(); document.removeEventListener('pointerdown', dismiss); } };
+          setTimeout(()=> document.addEventListener('pointerdown', dismiss), 0);
+        };
+        chip.addEventListener('pointerdown', ()=>{
+          longPressed = false;
+          timer = setTimeout(openReasonMenu, 500);
+        });
+        const cancelTimer = ()=>{ if(timer) clearTimeout(timer); };
+        chip.addEventListener('pointerup', cancelTimer);
+        chip.addEventListener('pointerleave', cancelTimer);
+        chip.addEventListener('pointercancel', cancelTimer);
+        // Swallow the click that follows a long-press so it doesn't
+        // also reset the chip back to a plain "Absent".
+        chip.addEventListener('click', (e)=>{ if(longPressed){ e.stopImmediatePropagation(); e.preventDefault(); longPressed=false; } }, true);
+      });
+
       wrap.querySelector('#save-att').addEventListener('click', ()=>{
         wrap.querySelectorAll('tr[data-sid]').forEach(tr=>{
           const sid = tr.dataset.sid;
-          const status = tr.querySelector('.chip.active')?.dataset.status || 'Present';
+          const activeChip = tr.querySelector('.chip.active');
+          const status = activeChip?.dataset.status || 'Present';
           const existing = DB.all('attendanceRecords').find(r=>r.studentId===sid && r.date===today);
           if(existing) DB.update('attendanceRecords', existing.id, {status});
           else DB.add('attendanceRecords', {studentId:sid, class:activeClass, date:today, status});

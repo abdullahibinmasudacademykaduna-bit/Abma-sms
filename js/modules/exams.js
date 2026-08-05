@@ -35,9 +35,9 @@ function ordinal(n){
   return n + (s[(v-20)%10] || s[v] || s[0]);
 }
 function attendanceStats(studentId){
-  const recs = DB.all('attendanceRecords').filter(r=>r.studentId===studentId);
+  const recs = DB.all('attendanceRecords').filter(r=>r.studentId===studentId && isSchoolDay(r.date));
   const opened = new Set(recs.map(r=>r.date)).size;
-  const present = recs.filter(r=>r.status!=='Absent').length;
+  const present = recs.filter(r=>attendanceCountsPresent(r.status)).length;
   return { opened, present };
 }
 function classStats(examId, className){

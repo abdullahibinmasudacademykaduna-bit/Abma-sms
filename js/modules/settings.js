@@ -38,6 +38,7 @@ MODULES.settings = function(container, ctx){
     <div class="tabs">
       <div class="tab active" data-tab="profile">School Profile</div>
       <div class="tab" data-tab="grading">Grading Scale</div>
+      <div class="tab" data-tab="calendar">School Calendar</div>
       <div class="tab" data-tab="appearance">Appearance</div>
       <div class="tab" data-tab="data">Backup & Restore</div>
     </div>
@@ -47,7 +48,7 @@ MODULES.settings = function(container, ctx){
   container.querySelectorAll('.tab').forEach(t=>{
     t.addEventListener('click', ()=>{
       container.querySelectorAll('.tab').forEach(x=>x.classList.remove('active')); t.classList.add('active');
-      ({profile:renderProfile, grading:renderGrading, appearance:renderAppearance, data:renderData})[t.dataset.tab]();
+      ({profile:renderProfile, grading:renderGrading, calendar:renderCalendar, appearance:renderAppearance, data:renderData})[t.dataset.tab]();
     });
   });
 
@@ -78,7 +79,7 @@ MODULES.settings = function(container, ctx){
       <div class="section-title">School details</div>
       ${UI.renderForm(fields, current)}
       ${canEdit ? `<div style="text-align:right;margin-top:16px;display:flex;justify-content:flex-end;gap:8px;">
-        <button class="btn btn-outline" id="notify-term">${ICONS.bell(15)} Notify Term/Session Change</button>
+        <button class="btn btn-outline" id="notify-term">${ICONS.bell(15)} Start New Term</button>
         <button class="btn btn-primary" id="save-profile">Save changes</button>
       </div>` : ''}
     </div>`;
@@ -109,12 +110,22 @@ MODULES.settings = function(container, ctx){
         const term = body.querySelector('[name="term"]').value.trim();
         const session = body.querySelector('[name="session"]').value.trim();
         if(!term && !session){ UI.toast('Set a term and/or session first','error'); return; }
-        saveSettings({term, session});
-        DB.add('activities', {
-          text: `The school has moved to a new term/session: ${term || '—'}${session ? ' · '+session : ''}.`,
-          type:'notice', time:'Just now', read:false, forUserId: null,
-        });
-        UI.toast('Every account has been notified of the term/session change');
+        UI.confirmDialog(
+          `Start "${term || '—'}${session ? ' · '+session : ''}" as the new term? This will:<br><br>` +
+          `• Notify every account of the change<br>` +
+          `• Archive all current fee bills (kept for history, hidden from the active view)<br>` +
+          `• Carry forward any unpaid balance as a fresh "Previous Balance b/f" bill in the new term<br><br>` +
+          `This can't be undone automatically.`,
+          ()=>{
+            saveSettings({term, session});
+            const { archivedCount, carriedCount } = rolloverFeesForNewTerm(term || session || 'New Term');
+            DB.add('activities', {
+              text: `The school has moved to a new term/session: ${term || '—'}${session ? ' · '+session : ''}.`,
+              type:'notice', time:'Just now', read:false, forUserId: null,
+            });
+            UI.toast(`New term started. ${archivedCount} fee record(s) archived, ${carriedCount} balance(s) carried forward.`);
+          }
+        );
       });
     }
   }
@@ -159,6 +170,81 @@ MODULES.settings = function(container, ctx){
           }));
           saveSettings({gradingScale: updated});
           UI.toast('Grading scale saved');
+        });
+      }
+    }
+    drawTable();
+  }
+
+  /* School days + holidays. Attendance "days school opened" counting
+     (report cards, dashboard trend) uses this to exclude weekends and
+     marked holidays/mid-term breaks automatically — even if an
+     attendance record accidentally exists for one of those dates, it
+     won't be counted, rather than relying on staff never marking
+     attendance on a non-school day. */
+  function renderCalendar(){
+    const days = schoolWeekdays().slice();
+    const ALL_WEEKDAYS = ['Mon','Tue','Wed','Thu','Fri','Sat','Sun'];
+    const holidays = schoolHolidays().slice();
+
+    function drawTable(){
+      body.innerHTML = `
+        <div class="card" style="margin-bottom:20px;">
+          <div class="section-title">School days <span class="row-sub" style="font-weight:400;">Which weekdays count toward "days school opened" — weekends are unticked by default</span></div>
+          <div class="chip-list" id="weekday-chips">
+            ${ALL_WEEKDAYS.map(d=>`<span class="chip ${days.includes(d)?'active':''}" data-day="${d}" style="${canEdit?'cursor:pointer;':'pointer-events:none;opacity:.7;'}">${d}</span>`).join('')}
+          </div>
+          ${canEdit ? `<div style="margin-top:14px;text-align:right;"><button class="btn btn-primary btn-sm" id="save-weekdays">Save school days</button></div>` : ''}
+        </div>
+
+        <div class="card">
+          <div class="section-title">Public holidays &amp; mid-term breaks <span class="row-sub" style="font-weight:400;">Dates here are also excluded from "days school opened", even on an otherwise normal school day</span></div>
+          <div class="table-wrap"><div class="scroll-x"><table>
+            <thead><tr><th>Date</th><th>Label</th>${canEdit?'<th></th>':''}</tr></thead>
+            <tbody>
+              ${holidays.map((h,i)=>`<tr data-i="${i}">
+                <td><input type="date" data-f="date" value="${h.date}" ${canEdit?'':'disabled'}/></td>
+                <td><input type="text" data-f="label" value="${h.label||''}" placeholder="e.g. Eid holiday, Mid-term break" ${canEdit?'':'disabled'}/></td>
+                ${canEdit?`<td><button class="icon-action" data-remove="${i}">${ICONS.trash(13)}</button></td>`:''}
+              </tr>`).join('') || `<tr><td colspan="${canEdit?3:2}">No holidays added yet</td></tr>`}
+            </tbody>
+          </table></div></div>
+          ${canEdit ? `<div style="margin-top:14px;display:flex;justify-content:space-between;">
+            <button class="btn btn-outline btn-sm" id="add-holiday">${ICONS.plus(13)} Add date</button>
+            <button class="btn btn-primary" id="save-holidays">Save holidays</button>
+          </div>` : ''}
+        </div>
+      `;
+
+      if(canEdit){
+        body.querySelectorAll('#weekday-chips [data-day]').forEach(chip=>{
+          chip.addEventListener('click', ()=>{
+            const d = chip.dataset.day;
+            const idx = days.indexOf(d);
+            if(idx===-1) days.push(d); else days.splice(idx,1);
+            chip.classList.toggle('active');
+          });
+        });
+        body.querySelector('#save-weekdays').addEventListener('click', ()=>{
+          if(!days.length){ UI.toast('Pick at least one school day','error'); return; }
+          saveSettings({schoolDays: days});
+          UI.toast('School days saved');
+        });
+
+        body.querySelector('#add-holiday').addEventListener('click', ()=>{
+          holidays.push({date: new Date().toISOString().slice(0,10), label:''}); drawTable();
+        });
+        body.querySelectorAll('[data-remove]').forEach(b=>b.addEventListener('click', ()=>{
+          holidays.splice(Number(b.dataset.remove),1); drawTable();
+        }));
+        body.querySelector('#save-holidays').addEventListener('click', ()=>{
+          const rows = body.querySelectorAll('tbody tr[data-i]');
+          const updated = Array.from(rows).map(tr=>({
+            date: tr.querySelector('[data-f="date"]').value,
+            label: tr.querySelector('[data-f="label"]').value.trim(),
+          })).filter(h=>h.date);
+          saveSettings({holidays: updated});
+          UI.toast('Holidays saved');
         });
       }
     }

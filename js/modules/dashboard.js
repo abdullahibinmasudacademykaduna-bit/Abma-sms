@@ -1,6 +1,45 @@
 /* Greenwood SMS — Dashboard module */
 window.MODULES = window.MODULES || {};
 
+/* Shared attendance status metadata — used by attendance.js (marking +
+   long-press for Sick/Travel), people.js (per-student history), and
+   exams.js (report card present/absent counts). Sick and Travel are
+   still absences for counting purposes (the student wasn't physically
+   at school) but are recorded with a specific reason so a parent
+   looking at the record on Open Day can see WHY, not just that a day
+   was missed. */
+const ATTENDANCE_STATUSES = ['Present','Absent','Late','Sick','Travel'];
+function attendanceCountsPresent(status){ return status==='Present' || status==='Late'; }
+function attendanceDotColor(status){
+  return { Present:'var(--green-500)', Late:'#DE9B3A', Sick:'#DE9B3A', Travel:'#2A5686', Absent:'#C1443D' }[status] || 'var(--ink-faint)';
+}
+function attendanceBadgeTone(status){
+  return { Present:'green', Late:'amber', Sick:'amber', Travel:'blue', Absent:'red' }[status] || 'gray';
+}
+
+/* School calendar — which weekdays count as school days, and specific
+   holiday/mid-term dates that don't, even if they'd otherwise be a
+   normal school weekday. Used to keep "days school opened" counts
+   (report cards, attendance trend) honest regardless of what a
+   teacher may have accidentally marked attendance for. */
+const WEEKDAY_ABBR = ['Sun','Mon','Tue','Wed','Thu','Fri','Sat'];
+function schoolWeekdays(){
+  const saved = DB.settings().schoolDays;
+  return (Array.isArray(saved) && saved.length) ? saved : ['Mon','Tue','Wed','Thu','Fri'];
+}
+function schoolHolidays(){
+  return Array.isArray(DB.settings().holidays) ? DB.settings().holidays : [];
+}
+function isSchoolDay(dateStr){
+  if(!dateStr) return false;
+  const d = new Date(dateStr + 'T00:00:00');
+  if(isNaN(d.getTime())) return false;
+  const weekday = WEEKDAY_ABBR[d.getDay()];
+  if(!schoolWeekdays().includes(weekday)) return false;
+  if(schoolHolidays().some(h=>h.date===dateStr)) return false;
+  return true;
+}
+
 // Attendance is marked per-student per-day into attendanceRecords — the
 // "attendance" collection is a seed-only demo shortcut (a pre-baked daily
 // summary) that nothing in the real app ever writes to, so it stays empty
@@ -8,15 +47,15 @@ window.MODULES = window.MODULES || {};
 // present/absent/total shape from attendanceRecords instead, so this
 // keeps working once a school actually starts marking attendance.
 function dailyAttendanceAggregates(){
-  const records = DB.all('attendanceRecords');
+  const records = DB.all('attendanceRecords').filter(r=>isSchoolDay(r.date));
   const byDate = {};
   records.forEach(r=>{
     if(!byDate[r.date]) byDate[r.date] = {date:r.date, present:0, absent:0, late:0, total:0};
     const b = byDate[r.date];
     b.total++;
     if(r.status==='Present') b.present++;
-    else if(r.status==='Absent') b.absent++;
     else if(r.status==='Late') b.late++;
+    else b.absent++; // Absent, Sick, Travel all count as "not present" for the aggregate trend
   });
   return Object.keys(byDate).sort().map(d=>byDate[d]);
 }
