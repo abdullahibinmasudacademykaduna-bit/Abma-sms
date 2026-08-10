@@ -282,21 +282,76 @@ MODULES.students = function(container, ctx){
      picked, a stray entry on a non-school day). This is that missing
      view: every record for this student, editable in place, plus a
      delete for entries that shouldn't exist at all. */
+  const MONTH_NAMES_FULL = ['January','February','March','April','May','June','July','August','September','October','November','December'];
+  const STATUS_ABBR = {Present:'PRE', Absent:'ABS', Late:'LAT', Sick:'SIC', Travel:'TRV'};
+
+  /* Attendance used to be a flat list of every entry ever made — fine
+     for corrections, but not something you'd hand a parent at PTA or
+     Open Day. This is a proper month calendar (the view most parents
+     already read intuitively) with month navigation and a clean print
+     output, plus the original correction list still available behind
+     a toggle for staff who need to fix a mistaken entry. */
   function openStudentAttendance(s){
     const canEditAttendance = ['Super Admin','Principal','Head Teacher','Teacher'].includes(ctx.user.role);
+    const now = new Date();
+    let viewYear = now.getFullYear();
+    let viewMonth = now.getMonth(); // 0-indexed
+    let mode = 'calendar'; // 'calendar' | 'list'
+
     function records(){
-      return DB.all('attendanceRecords').filter(r=>r.studentId===s.id).sort((a,b)=> b.date.localeCompare(a.date));
+      return DB.all('attendanceRecords').filter(r=>r.studentId===s.id);
     }
-    function summary(recs){
+    function overallSummary(){
+      const recs = records();
       const total = recs.length;
       const present = recs.filter(r=>attendanceCountsPresent(r.status)).length;
       const pct = total ? Math.round(present/total*100) : 0;
-      return `${present}/${total} days present (${pct}%)`;
+      return {total, present, pct};
     }
-    function bodyHTML(){
-      const recs = records();
+
+    function calendarHTML(){
+      const byDate = {};
+      records().forEach(r=> byDate[r.date] = r);
+      const firstOfMonth = new Date(viewYear, viewMonth, 1);
+      const startWeekday = firstOfMonth.getDay();
+      const daysInMonth = new Date(viewYear, viewMonth+1, 0).getDate();
+      const todayStr = new Date().toISOString().slice(0,10);
+      const weekdayHead = ['Sun','Mon','Tue','Wed','Thu','Fri','Sat']
+        .map(d=>`<div style="text-align:center;font-size:11px;font-weight:700;color:var(--ink-faint);padding:4px 0;">${d}</div>`).join('');
+
+      let cells = '';
+      for(let i=0;i<startWeekday;i++) cells += `<div></div>`;
+      for(let d=1; d<=daysInMonth; d++){
+        const dateStr = `${viewYear}-${String(viewMonth+1).padStart(2,'0')}-${String(d).padStart(2,'0')}`;
+        const rec = byDate[dateStr];
+        const schoolDay = isSchoolDay(dateStr);
+        const isFuture = dateStr > todayStr;
+        const isToday = dateStr === todayStr;
+        let badge = '';
+        if(rec){
+          badge = `<div style="margin-top:3px;font-size:10px;font-weight:700;letter-spacing:.03em;color:#fff;background:${attendanceDotColor(rec.status)};border-radius:5px;padding:2px 0;">${STATUS_ABBR[rec.status]||rec.status.slice(0,3).toUpperCase()}</div>`;
+        } else if(!schoolDay){
+          badge = `<div style="margin-top:3px;font-size:9.5px;color:var(--ink-faint);">off</div>`;
+        } else if(!isFuture){
+          badge = `<div style="margin-top:3px;font-size:10px;color:var(--ink-faint);">—</div>`;
+        }
+        cells += `<div style="text-align:center;padding:6px 2px;border-radius:8px;${isToday?'outline:2px solid var(--green-500);':''}${!schoolDay?'opacity:.55;':''}">
+          <div style="font-size:12.5px;font-weight:${isToday?'700':'500'};">${d}</div>${badge}
+        </div>`;
+      }
+      return `<div style="display:grid;grid-template-columns:repeat(7,1fr);gap:4px;">${weekdayHead}${cells}</div>`;
+    }
+
+    function legendHTML(){
+      const items = [['Present','Present'],['Late','Late'],['Absent','Absent'],['Sick','Sick'],['Travel','Travel']];
+      return `<div style="display:flex;gap:10px;flex-wrap:wrap;margin-top:14px;font-size:11px;color:var(--ink-faint);">
+        ${items.map(([status,label])=>`<span style="display:flex;align-items:center;gap:5px;"><span style="width:10px;height:10px;border-radius:3px;background:${attendanceDotColor(status)};display:inline-block;"></span>${label}</span>`).join('')}
+      </div>`;
+    }
+
+    function listHTML(){
+      const recs = records().slice().sort((a,b)=> b.date.localeCompare(a.date));
       return `
-        <div class="row-sub" style="margin-bottom:14px;">${summary(recs)}</div>
         <div id="att-hist-list">
           ${recs.length ? recs.map(r=>`
             <div class="activity-item">
@@ -312,14 +367,46 @@ MODULES.students = function(container, ctx){
         </div>
       `;
     }
+
+    function bodyHTML(){
+      const sum = overallSummary();
+      return `
+        <div class="grid grid-3" style="gap:10px;margin-bottom:16px;">
+          <div class="card-flat"><div class="row-sub">Days recorded</div><div class="value mono" style="font-size:18px;">${sum.total}</div></div>
+          <div class="card-flat"><div class="row-sub">Days present</div><div class="value mono" style="font-size:18px;">${sum.present}</div></div>
+          <div class="card-flat"><div class="row-sub">Attendance rate</div><div class="value mono" style="font-size:18px;">${sum.pct}%</div></div>
+        </div>
+        <div class="tabs" style="margin-bottom:14px;">
+          <div class="tab ${mode==='calendar'?'active':''}" data-mode="calendar">Calendar</div>
+          ${canEditAttendance ? `<div class="tab ${mode==='list'?'active':''}" data-mode="list">List / Corrections</div>` : ''}
+        </div>
+        ${mode==='calendar' ? `
+          <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:10px;">
+            <button class="icon-action" data-month="-1">${ICONS.chevronLeft(15)}</button>
+            <div style="font-weight:700;">${MONTH_NAMES_FULL[viewMonth]} ${viewYear}</div>
+            <button class="icon-action" data-month="1">${ICONS.chevronRight(15)}</button>
+          </div>
+          ${calendarHTML()}
+          ${legendHTML()}
+        ` : listHTML()}
+      `;
+    }
+
     UI.openModal({
       title: `Attendance — ${s.name}`,
       large:true,
       bodyHTML: bodyHTML(),
-      footHTML:`<button class="btn btn-primary" data-close>Close</button>`,
+      footHTML:`<button class="btn btn-outline print-hide" data-print-att style="margin-right:auto;">${ICONS.print(14)} Print</button><button class="btn btn-primary" data-close>Close</button>`,
       onMount:(modal)=>{
         function rewire(){
           modal.querySelector('.modal-body').innerHTML = bodyHTML();
+          modal.querySelectorAll('[data-mode]').forEach(t=>t.addEventListener('click', ()=>{ mode = t.dataset.mode; rewire(); }));
+          modal.querySelectorAll('[data-month]').forEach(b=>b.addEventListener('click', ()=>{
+            viewMonth += Number(b.dataset.month);
+            if(viewMonth<0){ viewMonth=11; viewYear--; }
+            if(viewMonth>11){ viewMonth=0; viewYear++; }
+            rewire();
+          }));
           modal.querySelectorAll('[data-status]').forEach(sel=>sel.addEventListener('change', ()=>{
             DB.update('attendanceRecords', sel.dataset.status, {status: sel.value});
             UI.toast('Attendance corrected');
@@ -334,8 +421,79 @@ MODULES.students = function(container, ctx){
           }));
         }
         rewire();
+        modal.querySelector('[data-print-att]').addEventListener('click', ()=> printAttendanceRecord(s, records()));
       }
     });
+  }
+
+  /* Clean, letterheaded, printable attendance record — built for
+     handing to a parent at PTA or Open Day, not for on-screen editing.
+     Groups every recorded day by month, with the same overall summary
+     shown in the modal. */
+  function printAttendanceRecord(student, recs){
+    const settings = DB.settings();
+    const sorted = recs.slice().sort((a,b)=> a.date.localeCompare(b.date));
+    const total = sorted.length;
+    const present = sorted.filter(r=>attendanceCountsPresent(r.status)).length;
+    const pct = total ? Math.round(present/total*100) : 0;
+
+    const byMonth = {};
+    sorted.forEach(r=>{
+      const key = r.date.slice(0,7);
+      if(!byMonth[key]) byMonth[key] = [];
+      byMonth[key].push(r);
+    });
+
+    const monthSections = Object.keys(byMonth).sort().map(key=>{
+      const [y,m] = key.split('-').map(Number);
+      const rows = byMonth[key].map(r=>`<tr><td style="padding:4px 8px;border-bottom:1px solid #eee;">${UI.fmtDate(r.date)}</td><td style="padding:4px 8px;border-bottom:1px solid #eee;">${r.status}</td></tr>`).join('');
+      return `<div style="margin-bottom:18px; break-inside:avoid;">
+        <h3 style="font-size:13px;margin:0 0 6px;color:#1a6b4a;">${MONTH_NAMES_FULL[m-1]} ${y}</h3>
+        <table style="width:100%;border-collapse:collapse;font-size:12px;">
+          <thead><tr><th style="text-align:left;padding:4px 8px;border-bottom:2px solid #1a6b4a;">Date</th><th style="text-align:left;padding:4px 8px;border-bottom:2px solid #1a6b4a;">Status</th></tr></thead>
+          <tbody>${rows}</tbody>
+        </table>
+      </div>`;
+    }).join('');
+
+    const html = `<!DOCTYPE html><html><head><meta charset="utf-8"><title>Attendance — ${student.name}</title>
+    <style>
+      body{font-family:Georgia,'Times New Roman',serif; padding:34px; color:#222;}
+      .header{display:flex;align-items:center;gap:14px;border-bottom:2px solid #1a6b4a;padding-bottom:14px;margin-bottom:22px;}
+      .header img{width:56px;height:56px;border-radius:50%;object-fit:cover;border:2px solid #1a6b4a;}
+      .school-name{font-size:18px;font-weight:bold;color:#1a6b4a;}
+      .summary{display:flex;gap:16px;margin-bottom:26px;}
+      .summary div{border:1px solid #ddd;border-radius:8px;padding:10px 18px;text-align:center;}
+      .summary b{display:block;font-size:20px;color:#1a6b4a;}
+      .cols{columns:2; column-gap:28px;}
+      @media print { .cols{columns:2;} }
+    </style></head>
+    <body>
+      <div class="header">
+        ${settings.logoDataUrl?`<img src="${settings.logoDataUrl}"/>`:''}
+        <div>
+          <div class="school-name">${settings.schoolName||''}</div>
+          <div style="font-size:11px;">${settings.address||''}</div>
+        </div>
+      </div>
+      <h2 style="margin:0 0 2px;">Attendance Record</h2>
+      <div style="font-size:13px;color:#555;margin-bottom:20px;">${student.name} · ${student.admissionNo} · ${student.class}</div>
+      <div class="summary">
+        <div><b>${total}</b>Days Recorded</div>
+        <div><b>${present}</b>Days Present</div>
+        <div><b>${pct}%</b>Attendance Rate</div>
+      </div>
+      <div class="cols">${monthSections || '<p>No attendance recorded yet.</p>'}</div>
+    </body></html>`;
+
+    const blob = new Blob([html], {type:'text/html'});
+    const url = URL.createObjectURL(blob);
+    const iframe = document.createElement('iframe');
+    iframe.style.cssText = 'position:fixed;right:0;bottom:0;width:0;height:0;border:0;';
+    document.body.appendChild(iframe);
+    iframe.onload = ()=>{ iframe.contentWindow.focus(); iframe.contentWindow.print(); };
+    iframe.src = url;
+    setTimeout(()=>{ URL.revokeObjectURL(url); iframe.remove(); }, 60000);
   }
 };
 
