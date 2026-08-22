@@ -48,6 +48,7 @@ MODULES.fees = function(container, ctx){
     <div class="tabs">
       <div class="tab active" data-tab="collection">Fee Collection</div>
       <div class="tab" data-tab="items">Billing Items</div>
+      ${canEdit ? `<div class="tab" data-tab="overview">Financial Overview</div>` : ''}
     </div>
     <div id="tab-body"></div>
   `;
@@ -55,7 +56,7 @@ MODULES.fees = function(container, ctx){
   container.querySelectorAll('.tab').forEach(t=>{
     t.addEventListener('click', ()=>{
       container.querySelectorAll('.tab').forEach(x=>x.classList.remove('active')); t.classList.add('active');
-      (t.dataset.tab==='items' ? renderBillingItems : renderCollection)();
+      ({items:renderBillingItems, overview:renderFinancialOverview}[t.dataset.tab] || renderCollection)();
     });
   });
 
@@ -90,6 +91,7 @@ MODULES.fees = function(container, ctx){
       <div class="page-actions" style="margin-bottom:12px;justify-content:flex-end;display:flex;gap:8px;">
         <button class="btn btn-outline" id="toggle-archived">${showArchived ? 'Hide previous terms' : 'Show previous terms'}</button>
         ${canEdit ? `<button class="btn btn-outline" id="export-fees">${ICONS.download(15)} Export</button>` : ''}
+        ${canEdit ? `<button class="btn btn-outline" id="bill-multiple">${ICONS.plus(15)} Bill Multiple</button>` : ''}
         ${canEdit ? `<button class="btn btn-primary" id="bill-student">${ICONS.plus(16)} Bill a Student</button>` : ''}
       </div>
       <div class="table-wrap" id="fee-tbl"></div>
@@ -121,6 +123,7 @@ MODULES.fees = function(container, ctx){
       UI.toast('Fees report exported');
     });
     body.querySelector('#bill-student')?.addEventListener('click', openBillStudent);
+    body.querySelector('#bill-multiple')?.addEventListener('click', openBillMultiple);
 
     renderTable();
   }
@@ -278,6 +281,96 @@ MODULES.fees = function(container, ctx){
     });
   }
 
+  /* Bill multiple students at once for one named item, each with their
+     own amount — for exactly the case where the item is the same in
+     kind (e.g. "Previous Balance b/f", a custom uniform charge, a
+     damaged-book replacement) but the amount genuinely differs per
+     student, and typing it in one at a time via "Bill a Student"
+     would be tedious. Note: for carrying forward unpaid balances into
+     a new term specifically, "Start New Term" in Settings already
+     does this automatically using each student's real balance — this
+     tool is for anything that needs a manually-entered custom amount
+     per student instead. */
+  function openBillMultiple(){
+    let classFilter = '';
+    const itemField = [{name:'itemName', label:'Item name', type:'text-datalist', options: DB.all('feeItems').map(i=>i.name), required:true, full:true, placeholder:'e.g. Previous Balance b/f'}];
+
+    function studentRowsHTML(){
+      const list = students.filter(s=> !classFilter || s.class===classFilter);
+      return list.map(s=>`
+        <div class="card-flat" data-srow="${s.id}" style="display:flex;align-items:center;gap:10px;margin-bottom:6px;">
+          <input type="checkbox" data-scheck="${s.id}" style="width:16px;height:16px;flex-shrink:0;"/>
+          <div style="flex:1;">
+            <div class="row-name">${s.name}</div>
+            <div class="row-sub">${s.class}</div>
+          </div>
+          <input type="number" data-samount="${s.id}" placeholder="Amount" style="width:110px;" disabled/>
+        </div>`).join('') || '<div class="row-sub">No students in this class</div>';
+    }
+
+    const { close } = UI.openModal({
+      title:'Bill multiple students',
+      large:true,
+      bodyHTML:`
+        ${UI.renderForm(itemField, {})}
+        <div style="display:flex;justify-content:space-between;align-items:center;margin:14px 0 8px;">
+          <div class="section-title" style="margin:0;">Select students and enter their amount</div>
+          <select id="bm-class-filter" style="width:auto;">
+            <option value="">All classes</option>
+            ${getClassNames().map(c=>`<option value="${c}">${c}</option>`).join('')}
+          </select>
+        </div>
+        <div id="bm-student-list">${studentRowsHTML()}</div>
+        <div class="row-sub" style="text-align:right;margin-top:10px;font-size:14px;">Total: <b id="bm-total">${UI.fmtMoney(0)}</b> across <b id="bm-count">0</b> student(s)</div>
+      `,
+      footHTML:`<button class="btn btn-outline" data-cancel>Cancel</button><button class="btn btn-primary" data-save>Create bills</button>`,
+      onMount:(modalEl, closeFn)=>{
+        function wireRows(){
+          modalEl.querySelectorAll('[data-scheck]').forEach(cb=>cb.addEventListener('change', recalc));
+          modalEl.querySelectorAll('[data-samount]').forEach(inp=>inp.addEventListener('input', recalc));
+        }
+        function recalc(){
+          let total = 0, count = 0;
+          modalEl.querySelectorAll('[data-scheck]').forEach(cb=>{
+            const amountInput = modalEl.querySelector(`[data-samount="${cb.dataset.scheck}"]`);
+            amountInput.disabled = !cb.checked;
+            if(cb.checked){ total += Number(amountInput.value||0); count++; }
+          });
+          modalEl.querySelector('#bm-total').textContent = UI.fmtMoney(total);
+          modalEl.querySelector('#bm-count').textContent = count;
+        }
+        modalEl.querySelector('#bm-class-filter').addEventListener('change', (e)=>{
+          classFilter = e.target.value;
+          modalEl.querySelector('#bm-student-list').innerHTML = studentRowsHTML();
+          wireRows(); recalc();
+        });
+        wireRows();
+
+        modalEl.querySelector('[data-cancel]').addEventListener('click', closeFn);
+        modalEl.querySelector('[data-save]').addEventListener('click', ()=>{
+          const itemName = modalEl.querySelector('[name="itemName"]').value.trim();
+          if(!itemName){ UI.toast('Name the item first','error'); return; }
+          const checked = Array.from(modalEl.querySelectorAll('[data-scheck]:checked'));
+          if(!checked.length){ UI.toast('Select at least one student','error'); return; }
+          let billed = 0;
+          checked.forEach(cb=>{
+            const amount = Number(modalEl.querySelector(`[data-samount="${cb.dataset.scheck}"]`).value || 0);
+            if(amount<=0) return; // skip anyone left at 0 — nothing to bill them for
+            DB.add('fees', {
+              studentId: cb.dataset.scheck, term: DB.settings().term || 'Current Term',
+              items:[{category:itemName, amount}], amount, paid:0, balance:amount, status:'Pending',
+              dueDate: new Date().toISOString().slice(0,10)
+            });
+            DB.update('students', cb.dataset.scheck, {feeStatus:'Pending'});
+            billed++;
+          });
+          if(!billed){ UI.toast('Enter an amount greater than 0 for at least one student','error'); return; }
+          UI.toast(`Billed ${billed} student(s)`); closeFn(); renderCollection();
+        });
+      }
+    });
+  }
+
   /* ---------------- Billing Items tab ---------------- */
   function renderBillingItems(){
     const items = DB.all('feeItems').slice();
@@ -327,6 +420,63 @@ MODULES.fees = function(container, ctx){
     // since there's no bulk-replace helper on DB.
     DB.all('feeItems').forEach(it=> DB.remove('feeItems', it.id));
     updated.forEach(it=> DB.add('feeItems', {id:it.id, name:it.name, price:it.price}));
+  }
+
+  /* ---------------- Financial Overview tab ---------------- */
+  /* Income = every naira actually collected from fees, ever — including
+     from archived (previous-term) bills, since money that was genuinely
+     paid stays real income regardless of which term it belonged to.
+     Expenditure = every naira spent, ever. Available balance is simply
+     the difference: what's left of everything the school has taken in
+     after everything it's spent. This is a running total, not scoped
+     to the current term — matches how an actual bank balance works. */
+  function renderFinancialOverview(){
+    const allFees = DB.all('fees');
+    const allExpenditures = DB.all('expenditures');
+    const totalIncome = allFees.reduce((s,f)=>s+(f.paid||0), 0);
+    const totalExpenditure = allExpenditures.reduce((s,e)=>s+(e.amount||0), 0);
+    const balance = totalIncome - totalExpenditure;
+    const totalBilled = allFees.reduce((s,f)=>s+(f.amount||0), 0);
+    const totalOutstanding = totalBilled - totalIncome;
+
+    body.innerHTML = `
+      <div class="grid grid-3" style="margin-bottom:20px;">
+        <div class="card stat-card"><div class="top"><div class="ic-wrap">${ICONS.trend(20)}</div></div><div class="label">Total Income (collected)</div><div class="value">${UI.fmtMoney(totalIncome)}</div></div>
+        <div class="card stat-card"><div class="top"><div class="ic-wrap" style="background:#FBE4E2;color:#8F2A25;">${ICONS.money(20)}</div></div><div class="label">Total Expenditure</div><div class="value">${UI.fmtMoney(totalExpenditure)}</div></div>
+        <div class="card stat-card"><div class="top"><div class="ic-wrap" style="background:${balance>=0?'#E4EDF7':'#FBE4E2'};color:${balance>=0?'#2A5686':'#8F2A25'};">${ICONS.fees(20)}</div></div><div class="label">Available Balance</div><div class="value" style="color:${balance>=0?'inherit':'#C1443D'};">${UI.fmtMoney(balance)}</div></div>
+      </div>
+      <div class="card" style="margin-bottom:20px;">
+        <div class="section-title">Income vs. Expenditure by month</div>
+        <div style="height:240px;"><canvas id="fin-overview-chart"></canvas></div>
+      </div>
+      <div class="grid grid-2">
+        <div class="card-flat"><div class="row-sub">Total billed (all time)</div><div class="row-name">${UI.fmtMoney(totalBilled)}</div></div>
+        <div class="card-flat"><div class="row-sub">Still outstanding (unpaid)</div><div class="row-name">${UI.fmtMoney(totalOutstanding)}</div></div>
+      </div>
+    `;
+
+    // Monthly breakdown for the trend chart
+    const byMonth = {};
+    function bucket(dateStr){
+      if(!dateStr) return null;
+      const key = dateStr.slice(0,7);
+      if(!byMonth[key]) byMonth[key] = {income:0, expenditure:0};
+      return byMonth[key];
+    }
+    allExpenditures.forEach(e=>{ const b = bucket(e.purchaseDate); if(b) b.expenditure += (e.amount||0); });
+    // Fees don't carry a "payment date" per collection event today, only
+    // a due date — approximate income timing with dueDate so the chart
+    // has something meaningful; the headline totals above are exact
+    // regardless.
+    allFees.forEach(f=>{ const b = bucket(f.dueDate); if(b && f.paid) b.income += f.paid; });
+    const months = Object.keys(byMonth).sort();
+    CHARTS.bar('fin-overview-chart', {
+      labels: months,
+      datasets:[
+        {label:'Income', data: months.map(m=>byMonth[m].income), color:'#2D6A4F'},
+        {label:'Expenditure', data: months.map(m=>byMonth[m].expenditure), color:'#C1443D'},
+      ]
+    });
   }
 
   renderCollection();
