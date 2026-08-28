@@ -45,6 +45,7 @@ function makeCrudModule(cfg){
       if(cfg.transformRows) rows = cfg.transformRows(rows);
       if(scoped) rows = rows.filter(r => scoped.includes(r.class));
       UI.dataTable(container.querySelector('#generic-tbl'), {
+        stateKey: 'generic-' + cfg.collection,
         rows,
         searchKeys: cfg.searchKeys || [],
         searchPlaceholder: `Search ${cfg.title.toLowerCase()}…`,

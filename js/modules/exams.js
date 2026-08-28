@@ -135,6 +135,7 @@ MODULES.exams = function(container, ctx){
   function renderExams(){
     body.innerHTML = `<div class="table-wrap" id="exam-tbl"></div>`;
     UI.dataTable(body.querySelector('#exam-tbl'), {
+      stateKey:'exams',
       rows: DB.all('exams'),
       searchKeys:['name','term'],
       searchPlaceholder:'Search exams…',

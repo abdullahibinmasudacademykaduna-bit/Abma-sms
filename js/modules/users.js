@@ -103,6 +103,7 @@ MODULES.userManagement = function(container, ctx){
   function renderTable(){
     const rows = DB.all('users').map(u=>({...u, status: u.status || 'Active'}));
     UI.dataTable(container.querySelector('#user-tbl'), {
+      stateKey:'users',
       rows,
       searchKeys:['name','email','role'],
       searchPlaceholder:'Search users…',

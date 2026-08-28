@@ -127,6 +127,7 @@ MODULES.classes = function(container, ctx){
   function renderSubjects(){
     body.innerHTML = `<div class="table-wrap" id="subj-tbl"></div>`;
     UI.dataTable(body.querySelector('#subj-tbl'), {
+      stateKey:'subjects',
       rows: DB.all('subjects'),
       searchKeys:['name','code'],
       searchPlaceholder:'Search subjects…',

@@ -40,7 +40,7 @@ function rolloverFeesForNewTerm(newTerm){
 
 MODULES.fees = function(container, ctx){
   const canEdit = ['Super Admin','Principal','Accountant'].includes(ctx.user.role);
-  const students = DB.all('students');
+  const students = sortByClassThenName(DB.all('students'));
   const studentMap = Object.fromEntries(students.map(s=>[s.id, s]));
 
   container.innerHTML = `
@@ -142,6 +142,7 @@ MODULES.fees = function(container, ctx){
       .filter(f=> showArchived ? true : !f.archived)
       .map(f=>({...f, studentName: studentMap[f.studentId]?.name || 'Unknown', class: studentMap[f.studentId]?.class}));
     UI.dataTable(body.querySelector('#fee-tbl'), {
+      stateKey:'fees',
       rows,
       searchKeys:['studentName'],
       searchPlaceholder:'Search by student…',

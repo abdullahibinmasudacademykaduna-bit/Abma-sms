@@ -28,11 +28,162 @@ function classLevel(className){
   if(rec && rec.level) return rec.level;
   return (className||'').startsWith('Primary') ? 'primary' : 'nursery';
 }
+
+/* Groups students by class (in the school's own class order — see
+   getClassList's "order" field, the same order Classes management
+   lets you reorder) so a class's students always appear together
+   instead of scattered by whatever order they were entered in. Used
+   anywhere a full/multi-class student list is shown: the Students
+   table, and the student pickers in billing. */
+function sortByClassThenName(list){
+  const classOrder = getClassNames();
+  return list.slice().sort((a,b)=>{
+    const ca = classOrder.indexOf(a.class), cb = classOrder.indexOf(b.class);
+    const oa = ca===-1 ? 9999 : ca, ob = cb===-1 ? 9999 : cb;
+    if(oa !== ob) return oa - ob;
+    return (a.name||'').localeCompare(b.name||'');
+  });
+}
+
+/* Small hand-rolled CSV parser (handles quoted fields, escaped ""
+   quotes, and commas/newlines inside quotes) — no external library
+   needed for a format this simple. */
+function parseCSV(text){
+  const rows = [];
+  let row = [], field = '', inQuotes = false;
+  for(let i=0;i<text.length;i++){
+    const c = text[i];
+    if(inQuotes){
+      if(c === '"'){
+        if(text[i+1] === '"'){ field += '"'; i++; }
+        else inQuotes = false;
+      } else field += c;
+    } else {
+      if(c === '"') inQuotes = true;
+      else if(c === ','){ row.push(field); field = ''; }
+      else if(c === '\n' || c === '\r'){
+        if(c === '\r' && text[i+1] === '\n') i++;
+        row.push(field); field = '';
+        if(row.some(f=>f!=='')) rows.push(row);
+        row = [];
+      } else field += c;
+    }
+  }
+  if(field.length || row.length){ row.push(field); if(row.some(f=>f!=='')) rows.push(row); }
+  return rows;
+}
+
+const CSV_STUDENT_COLUMNS = [
+  {header:'Name', key:'name', required:true},
+  {header:'Admission No', key:'admissionNo', required:true},
+  {header:'Gender', key:'gender'},
+  {header:'Class', key:'class', required:true},
+  {header:'Date of Birth', key:'dob'},
+  {header:'Guardian', key:'guardian'},
+  {header:'Phone', key:'phone'},
+  {header:'Email', key:'email'},
+  {header:'Address', key:'address'},
+  {header:'Status', key:'status'},
+];
 function nextClassName(className){
   const names = getClassNames();
   const i = names.indexOf(className);
   if(i===-1 || i===names.length-1) return null; // last class = about to graduate
   return names[i+1];
+}
+
+/* Printable student ID cards. No student photo field exists yet, so
+   each card uses the same colored-initials avatar already used
+   throughout the app rather than a blank photo box. QR encodes the
+   admission number, scannable to quickly confirm a card is genuine
+   without needing the app open. */
+function buildIDCardHTML(student, settings){
+  const qrText = encodeURIComponent(`${settings.schoolName||'School'} · ${student.name} · ${student.admissionNo}`);
+  return `
+    <div class="idc">
+      <div class="idc-head">
+        ${settings.logoDataUrl ? `<img class="idc-logo" src="${settings.logoDataUrl}"/>` : ''}
+        <div class="idc-school">${settings.schoolName||''}</div>
+      </div>
+      <div class="idc-body">
+        <div class="idc-avatar">${UI.initials(student.name)}</div>
+        <div class="idc-info">
+          <div class="idc-name">${student.name}</div>
+          <div class="idc-row"><b>Adm. No:</b> ${student.admissionNo||'—'}</div>
+          <div class="idc-row"><b>Class:</b> ${student.class||'—'}</div>
+          <div class="idc-row"><b>Guardian:</b> ${student.guardian||'—'}</div>
+          <div class="idc-row"><b>Phone:</b> ${student.phone||'—'}</div>
+        </div>
+      </div>
+      <div class="idc-foot">
+        <div data-qrtext="${qrText}" class="idc-qr"></div>
+        <div class="idc-session">${settings.session||''}</div>
+      </div>
+    </div>`;
+}
+
+const IDC_PRINT_CSS = `
+  @page { size: A4; margin: 12mm; }
+  body{ font-family: 'Segoe UI', Arial, sans-serif; margin:0; }
+  .idc-grid{ display:flex; flex-wrap:wrap; gap:8mm; }
+  .idc{ width:54mm; height:86mm; border:1px solid #ccc; border-radius:10px; overflow:hidden; display:flex; flex-direction:column; break-inside:avoid; }
+  .idc-head{ background:#1a6b4a; color:#fff; padding:6px 8px; display:flex; align-items:center; gap:6px; }
+  .idc-logo{ width:20px; height:20px; border-radius:50%; object-fit:cover; background:#fff; }
+  .idc-school{ font-size:9px; font-weight:700; line-height:1.15; }
+  .idc-body{ flex:1; padding:10px 8px; text-align:center; }
+  .idc-avatar{ width:46px; height:46px; border-radius:50%; background:#e4f0ea; color:#1a6b4a; font-weight:700; font-size:15px; display:flex; align-items:center; justify-content:center; margin:0 auto 8px; }
+  .idc-name{ font-weight:700; font-size:12px; margin-bottom:6px; }
+  .idc-row{ font-size:9px; text-align:left; margin-bottom:2px; color:#333; }
+  .idc-foot{ padding:6px 8px; border-top:1px dashed #ccc; display:flex; align-items:center; justify-content:space-between; }
+  .idc-qr img{ width:34px; height:34px; }
+  .idc-session{ font-size:8px; color:#777; }
+`;
+
+function printIDCards(studentsList){
+  const settings = DB.settings();
+  const cardHTMLs = studentsList.map(s=>buildIDCardHTML(s, settings));
+
+  function resolveQRCodes(htmlStrings, callback){
+    if(typeof QRCode === 'undefined'){ callback(htmlStrings); return; }
+    const tempHolder = document.createElement('div');
+    tempHolder.style.cssText = 'position:fixed;left:-9999px;top:-9999px;';
+    document.body.appendChild(tempHolder);
+
+    const jobs = htmlStrings.map(html => ({ html, matches:[...html.matchAll(/data-qrtext="([^"]+)"/g)] }));
+    let pending = jobs.reduce((n,j)=>n+j.matches.length, 0);
+    if(pending === 0){ document.body.removeChild(tempHolder); callback(htmlStrings); return; }
+
+    jobs.forEach(job=>{
+      job.matches.forEach(match=>{
+        const encoded = match[1];
+        const qrText = decodeURIComponent(encoded);
+        const div = document.createElement('div');
+        tempHolder.appendChild(div);
+        try{ new QRCode(div, {text:qrText, width:60, height:60, colorDark:'#000000', colorLight:'#ffffff'}); }catch(e){}
+        setTimeout(()=>{
+          const canvas = div.querySelector('canvas');
+          const dataURL = canvas ? canvas.toDataURL('image/png') : '';
+          const placeholder = new RegExp(`<div[^>]*data-qrtext="${encoded}"[^>]*>(</div>)?`, 'g');
+          job.html = job.html.replace(placeholder, dataURL ? `<img src="${dataURL}"/>` : '');
+          pending--;
+          if(pending===0){ document.body.removeChild(tempHolder); callback(jobs.map(j=>j.html)); }
+        }, 250);
+      });
+    });
+  }
+
+  resolveQRCodes(cardHTMLs, (resolvedHTMLs)=>{
+    const html = `<!DOCTYPE html><html><head><meta charset="UTF-8"><title>Student ID Cards</title><style>${IDC_PRINT_CSS}</style></head>
+      <body><div class="idc-grid">${resolvedHTMLs.join('')}</div>
+      <script>window.onload=function(){window.print();};<\/script></body></html>`;
+    const blob = new Blob([html], {type:'text/html'});
+    const url = URL.createObjectURL(blob);
+    const iframe = document.createElement('iframe');
+    iframe.style.cssText = 'position:fixed;right:0;bottom:0;width:0;height:0;border:0;';
+    iframe.src = url;
+    document.body.appendChild(iframe);
+    setTimeout(()=>{ URL.revokeObjectURL(url); iframe.remove(); }, 60000);
+  });
 }
 
 const NURSERY_SUBJECTS = ['Numeracy','Literacy','Basic Science','Social Habits','Rhymes & Phonics','Drawing & Colouring','Physical & Health Education'];
@@ -211,16 +362,41 @@ MODULES.students = function(container, ctx){
   }
 
   container.innerHTML = `
-    ${UI.pageHeader('People', 'Student Management', canEdit ? `<button class="btn btn-primary" id="add-student">${ICONS.plus(16)} Add Student</button>` : '')}
+    ${UI.pageHeader('People', 'Student Management', `
+      <button class="btn btn-outline" id="print-idcards">${ICONS.id(15)} Print ID Cards</button>
+      ${canEdit ? `<button class="btn btn-outline" id="import-students">${ICONS.upload(15)} Import CSV</button>` : ''}
+      ${canEdit ? `<button class="btn btn-primary" id="add-student">${ICONS.plus(16)} Add Student</button>` : ''}
+    `)}
     ${scoped ? `<p class="row-sub" style="margin-bottom:14px;">Showing students in your assigned class${scoped.length===1?'':'es'}: <strong>${scoped.join(', ')||'none assigned yet'}</strong></p>` : ''}
     <div class="table-wrap" id="tbl"></div>
   `;
   if(canEdit) container.querySelector('#add-student').addEventListener('click', ()=>openForm(null));
+  if(canEdit) container.querySelector('#import-students')?.addEventListener('click', openImportStudents);
+  container.querySelector('#print-idcards').addEventListener('click', ()=>{
+    const options = (scoped && scoped.length) ? scoped : getClassNames();
+    UI.openModal({
+      title:'Print ID Cards',
+      bodyHTML: UI.renderForm([{name:'className', label:'Class', type:'select', options, required:true, full:true}], {}),
+      footHTML:`<button class="btn btn-outline" data-cancel>Cancel</button><button class="btn btn-primary" data-print>Print</button>`,
+      onMount:(modal, close)=>{
+        modal.querySelector('[data-cancel]').addEventListener('click', close);
+        modal.querySelector('[data-print]').addEventListener('click', ()=>{
+          const className = modal.querySelector('[name="className"]').value;
+          const list = sortByClassThenName(DB.all('students').filter(s=>s.class===className));
+          if(!list.length){ UI.toast('No students in that class yet','error'); return; }
+          printIDCards(list);
+          close();
+        });
+      }
+    });
+  });
 
   function renderTable(){
     let rows = DB.all('students');
     if(scoped) rows = rows.filter(s=>scoped.includes(s.class));
+    rows = sortByClassThenName(rows);
     UI.dataTable(container.querySelector('#tbl'), {
+      stateKey:'students',
       rows,
       searchKeys:['name','admissionNo','email','guardian'],
       searchPlaceholder:'Search students…',
@@ -269,9 +445,10 @@ MODULES.students = function(container, ctx){
           <div class="card-flat"><div class="row-sub">Blood group</div><div class="row-name">${s.bloodGroup||'—'}</div></div>
           <div class="card-flat"><div class="row-sub">Fee balance</div><div class="row-name">${fee?UI.fmtMoney(fee.balance):'—'}</div></div>
         </div>`,
-      footHTML:`<button class="btn btn-outline" data-attendance style="margin-right:auto;">${ICONS.attendance(14)} Attendance History</button><button class="btn btn-outline" data-close>Close</button>`,
+      footHTML:`<button class="btn btn-outline" data-attendance style="margin-right:auto;">${ICONS.attendance(14)} Attendance History</button><button class="btn btn-outline" data-idcard>${ICONS.id(14)} ID Card</button><button class="btn btn-outline" data-close>Close</button>`,
       onMount:(modal)=>{
         modal.querySelector('[data-attendance]').addEventListener('click', ()=> openStudentAttendance(s));
+        modal.querySelector('[data-idcard]').addEventListener('click', ()=> printIDCards([s]));
       }
     });
   }
@@ -495,6 +672,98 @@ MODULES.students = function(container, ctx){
     iframe.src = url;
     setTimeout(()=>{ URL.revokeObjectURL(url); iframe.remove(); }, 60000);
   }
+
+  /* Bulk-add students from a CSV export (Excel/Google Sheets). Shows a
+     preview before committing anything — rows missing a required
+     field, or naming a class that doesn't exist yet in Academics, are
+     flagged and simply skipped rather than silently guessed at or
+     blocking the whole import. */
+  function openImportStudents(){
+    let parsedRows = [];
+    UI.openModal({
+      title:'Import students from CSV',
+      large:true,
+      bodyHTML:`
+        <div class="row-sub" style="margin-bottom:12px;">
+          Expected columns: ${CSV_STUDENT_COLUMNS.map(c=>c.header).join(', ')}.<br/>
+          Class names must exactly match a class already set up in Academics → Classes &amp; Subjects.
+          <a href="#" id="download-template">Download a template CSV</a> to see the exact format.
+        </div>
+        <input type="file" accept=".csv" id="csv-file"/>
+        <div id="csv-preview" style="margin-top:16px;"></div>
+      `,
+      footHTML:`<button class="btn btn-outline" data-cancel>Cancel</button><button class="btn btn-primary" id="confirm-import" disabled>Import</button>`,
+      onMount:(modal, close)=>{
+        modal.querySelector('[data-cancel]').addEventListener('click', close);
+
+        modal.querySelector('#download-template').addEventListener('click', (e)=>{
+          e.preventDefault();
+          const headerLine = CSV_STUDENT_COLUMNS.map(c=>c.header).join(',');
+          const sampleClass = getClassNames()[0] || 'Primary 1';
+          const example = `Aisha Bello,ABMA/2025/0100,Female,${sampleClass},2018-04-12,Bello Musa,08012345678,,No 4 Example Street,Active`;
+          const blob = new Blob([headerLine+'\n'+example], {type:'text/csv'});
+          const a = document.createElement('a');
+          a.href = URL.createObjectURL(blob); a.download = 'student-import-template.csv'; a.click();
+        });
+
+        modal.querySelector('#csv-file').addEventListener('change', (e)=>{
+          const file = e.target.files[0];
+          if(!file) return;
+          const reader = new FileReader();
+          reader.onload = ev=>{
+            const rows = parseCSV(ev.target.result);
+            if(!rows.length){ UI.toast('That file looks empty','error'); return; }
+            const headerRow = rows[0].map(h=>h.trim());
+            const colIndex = {};
+            CSV_STUDENT_COLUMNS.forEach(c=>{
+              colIndex[c.key] = headerRow.findIndex(h=>h.toLowerCase()===c.header.toLowerCase());
+            });
+            const existingClasses = getClassNames();
+            parsedRows = rows.slice(1).map(r=>{
+              const rec = {};
+              CSV_STUDENT_COLUMNS.forEach(c=>{
+                rec[c.key] = colIndex[c.key]>=0 ? (r[colIndex[c.key]]||'').trim() : '';
+              });
+              rec._reason = !rec.name ? 'Missing name'
+                : !rec.admissionNo ? 'Missing admission no.'
+                : !rec.class ? 'Missing class'
+                : !existingClasses.includes(rec.class) ? `Class "${rec.class}" doesn't exist yet`
+                : '';
+              rec._valid = !rec._reason;
+              return rec;
+            });
+
+            const validCount = parsedRows.filter(r=>r._valid).length;
+            modal.querySelector('#csv-preview').innerHTML = `
+              <div class="row-sub" style="margin-bottom:8px;">${validCount} of ${parsedRows.length} row(s) ready to import.</div>
+              <div class="table-wrap"><div class="scroll-x"><table>
+                <thead><tr><th>Name</th><th>Admission No</th><th>Class</th><th>Status</th></tr></thead>
+                <tbody>${parsedRows.slice(0,50).map(r=>`<tr>
+                  <td>${r.name||'—'}</td><td>${r.admissionNo||'—'}</td><td>${r.class||'—'}</td>
+                  <td>${r._valid ? UI.badge('Ready','green') : UI.badge(r._reason,'red')}</td>
+                </tr>`).join('')}</tbody>
+              </table></div></div>
+              ${parsedRows.length>50 ? `<div class="row-sub" style="margin-top:6px;">Showing first 50 of ${parsedRows.length} rows.</div>` : ''}
+            `;
+            modal.querySelector('#confirm-import').disabled = validCount===0;
+          };
+          reader.readAsText(file);
+        });
+
+        modal.querySelector('#confirm-import').addEventListener('click', ()=>{
+          const toImport = parsedRows.filter(r=>r._valid);
+          toImport.forEach(r=>{
+            DB.add('students', {
+              name:r.name, admissionNo:r.admissionNo, gender:r.gender||'', class:r.class,
+              dob:r.dob||'', guardian:r.guardian||'', phone:r.phone||'', email:r.email||'',
+              address:r.address||'', status:r.status||'Active', feeStatus:'Pending'
+            });
+          });
+          UI.toast(`Imported ${toImport.length} student(s)`); close(); renderTable();
+        });
+      }
+    });
+  }
 };
 
 /* ---------------- Academic Staff (Teachers) ---------------- */
@@ -542,6 +811,7 @@ MODULES.teachers = function(container, ctx){
 
   function renderTable(){
     UI.dataTable(container.querySelector('#tbl'), {
+      stateKey:'teachers',
       rows: DB.all('teachers'),
       searchKeys:['name','staffNo','email'],
       searchPlaceholder:'Search academic staff…',
@@ -617,6 +887,7 @@ MODULES.staff = function(container, ctx){
 
   function renderTable(){
     UI.dataTable(container.querySelector('#tbl'), {
+      stateKey:'staff',
       rows: DB.all('staff'),
       searchKeys:['name','staffNo','role','department'],
       searchPlaceholder:'Search non-academic staff…',

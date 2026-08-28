@@ -53,6 +53,7 @@ MODULES.library = function(container, ctx){
   function renderCatalog(){
     body.innerHTML = `<div class="table-wrap" id="lib-tbl"></div>`;
     UI.dataTable(body.querySelector('#lib-tbl'), {
+      stateKey:'library-catalog',
       rows: DB.all('library'),
       searchKeys:['title','author','isbn'],
       searchPlaceholder:'Search catalog…',
@@ -103,6 +104,7 @@ MODULES.library = function(container, ctx){
     body.innerHTML = `<div class="table-wrap" id="loan-tbl"></div>`;
     const rows = DB.all('libraryLoans').map(l=>({...l, bookTitle: books[l.bookId]?.title, studentName: students[l.studentId]?.name}));
     UI.dataTable(body.querySelector('#loan-tbl'), {
+      stateKey:'library-loans',
       rows,
       searchKeys:['bookTitle','studentName'],
       searchPlaceholder:'Search loans…',

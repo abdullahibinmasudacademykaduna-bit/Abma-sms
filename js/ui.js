@@ -142,11 +142,24 @@ const UI = (function(){
 
   // ---------------- Table builder ----------------
   // opts: {columns:[{key,label,render}], rows, pageSize, searchKeys, filters:[{key,label,options}], onRowAction}
+  // Remembers each table's current page across re-renders, keyed by
+  // whatever stateKey the caller passes in opts. Without this, every
+  // table reset to page 1 on any refresh — including ones triggered by
+  // routine actions like viewing or editing a single row — which made
+  // working through a long list one action at a time tedious.
+  const _dataTablePageState = {};
+
   function dataTable(container, opts){
-    let page = 1;
+    const stateKey = opts.stateKey || null;
+    let page = (stateKey && _dataTablePageState[stateKey]) ? _dataTablePageState[stateKey] : 1;
     const pageSize = opts.pageSize || 8;
     let query = '';
     let activeFilters = {};
+
+    function setPage(p){
+      page = p;
+      if(stateKey) _dataTablePageState[stateKey] = page;
+    }
 
     function filteredRows(){
       let rows = opts.rows;
@@ -163,7 +176,7 @@ const UI = (function(){
     function render(){
       const rows = filteredRows();
       const totalPages = Math.max(1, Math.ceil(rows.length/pageSize));
-      page = Math.min(page, totalPages);
+      if(page > totalPages) setPage(totalPages); // clamp (e.g. after a delete shrinks the list) without resetting all the way to page 1
       const pageRows = rows.slice((page-1)*pageSize, page*pageSize);
 
       container.innerHTML = `
@@ -198,14 +211,14 @@ const UI = (function(){
         </div>
       `;
 
-      container.querySelector('[data-tbl-search]').addEventListener('input', e=>{ query=e.target.value; page=1; render(); });
+      container.querySelector('[data-tbl-search]').addEventListener('input', e=>{ query=e.target.value; setPage(1); render(); });
       container.querySelectorAll('[data-tbl-filter]').forEach(sel=>{
-        sel.addEventListener('change', e=>{ activeFilters[sel.dataset.tblFilter] = e.target.value; page=1; render(); });
+        sel.addEventListener('change', e=>{ activeFilters[sel.dataset.tblFilter] = e.target.value; setPage(1); render(); });
       });
       const prev = container.querySelector('[data-prev]');
       const next = container.querySelector('[data-next]');
-      if(prev) prev.addEventListener('click', ()=>{ if(page>1){page--; render();} });
-      if(next) next.addEventListener('click', ()=>{ if(page<totalPages){page++; render();} });
+      if(prev) prev.addEventListener('click', ()=>{ if(page>1){ setPage(page-1); render();} });
+      if(next) next.addEventListener('click', ()=>{ if(page<totalPages){ setPage(page+1); render();} });
       if(opts.onRender) opts.onRender(container);
     }
     render();

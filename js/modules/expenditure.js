@@ -109,6 +109,7 @@ MODULES.expenditure = function(container, ctx){
 
   function renderTable(){
     UI.dataTable(container.querySelector('#exp-tbl'), {
+      stateKey:'expenditures',
       rows: DB.all('expenditures'),
       searchKeys:['item','vendor','purchasedBy'],
       searchPlaceholder:'Search expenditures…',
