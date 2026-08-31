@@ -174,6 +174,14 @@ const UI = (function(){
     }
 
     function render(){
+      // The whole table (including the search box) gets rebuilt on
+      // every keystroke, which would normally throw focus away after
+      // each character typed — save it here and restore it below so
+      // typing feels continuous instead of needing a re-click per letter.
+      const active = document.activeElement;
+      const wasSearchFocused = active && container.contains(active) && active.hasAttribute('data-tbl-search');
+      const cursorPos = wasSearchFocused ? active.selectionStart : null;
+
       const rows = filteredRows();
       const totalPages = Math.max(1, Math.ceil(rows.length/pageSize));
       if(page > totalPages) setPage(totalPages); // clamp (e.g. after a delete shrinks the list) without resetting all the way to page 1
@@ -210,6 +218,14 @@ const UI = (function(){
           </div>
         </div>
       `;
+
+      if(wasSearchFocused){
+        const freshSearch = container.querySelector('[data-tbl-search]');
+        if(freshSearch){
+          freshSearch.focus();
+          if(cursorPos !== null) freshSearch.setSelectionRange(cursorPos, cursorPos);
+        }
+      }
 
       container.querySelector('[data-tbl-search]').addEventListener('input', e=>{ query=e.target.value; setPage(1); render(); });
       container.querySelectorAll('[data-tbl-filter]').forEach(sel=>{

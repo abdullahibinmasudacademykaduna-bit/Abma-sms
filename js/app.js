@@ -90,7 +90,7 @@ window.APP = (function(){
           <div class="auth-brand">
             <div>
               <div class="seal">GW</div>
-              <h1>${s.schoolName || 'Greenwood International School'}</h1>
+              <h1>${s.schoolName || 'ABMA School'}</h1>
               <p>${s.motto || 'Knowledge · Character · Excellence'}. Sign in to manage students, staff, academics, and finances — all in one place.</p>
             </div>
             <div class="auth-stats">
@@ -156,7 +156,7 @@ window.APP = (function(){
           <div class="auth-brand">
             <div>
               <div class="seal">GW</div>
-              <h1>${s.schoolName || 'Greenwood International School'}</h1>
+              <h1>${s.schoolName || 'ABMA School'}</h1>
               <p>${s.motto || 'Knowledge · Character · Excellence'}. Sign in to manage students, staff, academics, and finances — all in one place.</p>
             </div>
             <div class="auth-stats">
@@ -250,7 +250,7 @@ window.APP = (function(){
         <aside class="sidebar" id="sidebar">
           <div class="sidebar-head">
             <div class="seal">GW</div>
-            <div class="name">${settings.schoolName?.split(' ')[0] || 'Greenwood'}<small>SMS · ${settings.term||''}</small></div>
+            <div class="name">${settings.schoolName?.split(' ')[0] || 'ABMA'}<small>SMS · ${settings.term||''}</small></div>
           </div>
           <nav class="nav-scroll" id="nav-scroll">
             ${nav.map(section=>`

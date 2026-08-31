@@ -1,6 +1,6 @@
 {
-  "name": "Greenwood SMS — School Management System",
-  "short_name": "Greenwood SMS",
+  "name": "ABMA SMS — School Management System",
+  "short_name": "ABMA SMS",
   "description": "A modern, offline-capable School Management System for administrators, teachers, parents and students.",
   "start_url": "./index.html",
   "scope": "./",
