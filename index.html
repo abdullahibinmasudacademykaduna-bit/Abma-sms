@@ -13,22 +13,10 @@
 <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.4/dist/chart.umd.min.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/qrcodejs@1.0.0/qrcode.min.js"></script>
 
-<!-- ============ Firebase (production) — commented out by default ============
-     To go live on Firebase:
-       1. Follow FIREBASE_MIGRATION.md to create the project, enable
-          Auth + Firestore + Storage, and get your web app config.
-       2. Copy js/firebase-config.example.js → js/firebase-config.js
-          and fill in your project's values.
-       3. Uncomment the 4 lines below.
-       4. In the "App scripts" block further down, comment out
-          js/db.js + js/auth.js and uncomment js/db.firebase.js +
-          js/auth.firebase.js instead. Nothing else in this file
-          changes — every other script stays exactly as-is.
-     <script src="https://www.gstatic.com/firebasejs/10.14.1/firebase-app-compat.js"></script>
-     <script src="https://www.gstatic.com/firebasejs/10.14.1/firebase-auth-compat.js"></script>
-     <script src="https://www.gstatic.com/firebasejs/10.14.1/firebase-firestore-compat.js"></script>
-     <script src="js/firebase-config.js"></script>
--->
+<script src="https://www.gstatic.com/firebasejs/10.14.1/firebase-app-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/10.14.1/firebase-auth-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/10.14.1/firebase-firestore-compat.js"></script>
+<script src="js/firebase-config.js"></script>
 </head>
 <body>
 
@@ -37,13 +25,8 @@
 
 <!-- ============ App scripts (plain ES6, no bundler — loaded in dependency order) ============ -->
 <script src="js/icons.js"></script>
-<!-- DEMO (localStorage) — comment these 2 out for production: -->
-<script src="js/db.js"></script>
-<script src="js/auth.js"></script>
-<!-- PRODUCTION (Firebase) — uncomment these 2 instead:
 <script src="js/db.firebase.js"></script>
 <script src="js/auth.firebase.js"></script>
--->
 <script src="js/ui.js"></script>
 <script src="js/charts.js"></script>
 <script src="js/modules/dashboard.js"></script>
