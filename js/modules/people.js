@@ -92,6 +92,31 @@ function nextClassName(className){
   return names[i+1];
 }
 
+/* Auto-generates the next admission number in ABMA/<year>/#### form,
+   scanning existing students for the highest sequence number already
+   used in the current year so numbers never collide or reset early.
+   Purely a suggested default for the Add Student form — the field
+   stays a normal editable text input, and the actual uniqueness check
+   happens at save time (see studentFields' openForm). */
+function nextAdmissionNo(){
+  const year = new Date().getFullYear();
+  const pattern = new RegExp(`^ABMA/${year}/(\\d{4,})$`, 'i');
+  let max = 0;
+  DB.all('students').forEach(s=>{
+    const m = String(s.admissionNo||'').trim().toUpperCase().match(pattern);
+    if(m){ const n = parseInt(m[1],10); if(n>max) max = n; }
+  });
+  return `ABMA/${year}/${String(max+1).padStart(4,'0')}`;
+}
+/* True if admissionNo is already used by a different student record
+   (case/whitespace-insensitive). Pass the record being edited (or null
+   when adding) so a student isn't flagged against their own number. */
+function admissionNoTaken(admissionNo, excludeId){
+  const target = String(admissionNo||'').trim().toUpperCase();
+  if(!target) return false;
+  return DB.all('students').some(s => s.id!==excludeId && String(s.admissionNo||'').trim().toUpperCase()===target);
+}
+
 /* Printable student ID cards. No student photo field exists yet, so
    each card uses the same colored-initials avatar already used
    throughout the app rather than a blank photo box. QR encodes the
@@ -346,13 +371,31 @@ MODULES.students = function(container, ctx){
     UI.openModal({
       title: record ? 'Edit student' : 'Add student',
       large:true,
-      bodyHTML: UI.renderForm(fields, record||{status:'Active', gender:'Male', class:getClassNames()[0]}),
+      bodyHTML: UI.renderForm(fields, record||{status:'Active', gender:'Male', class:getClassNames()[0], admissionNo:nextAdmissionNo()}),
       footHTML: `<button class="btn btn-outline" data-cancel>Cancel</button><button class="btn btn-primary" data-save>${record?'Save changes':'Add student'}</button>`,
       onMount:(modal, close)=>{
+        // New students get a "Generate new" button beside the Admission
+        // No. field so a duplicate/mistyped number can be replaced with
+        // a fresh suggestion without leaving the form. Not shown while
+        // editing — regenerating an existing student's number is a
+        // deliberate re-issue, not a one-click action.
+        if(!record){
+          const admInput = modal.querySelector('[name="admissionNo"]');
+          if(admInput){
+            const genBtn = document.createElement('button');
+            genBtn.type = 'button';
+            genBtn.className = 'btn btn-sm btn-outline';
+            genBtn.style.cssText = 'margin-top:6px;';
+            genBtn.textContent = 'Generate new';
+            genBtn.addEventListener('click', ()=>{ admInput.value = nextAdmissionNo(); });
+            admInput.insertAdjacentElement('afterend', genBtn);
+          }
+        }
         modal.querySelector('[data-cancel]').addEventListener('click', close);
         modal.querySelector('[data-save]').addEventListener('click', ()=>{
           const data = UI.readForm(modal, fields);
           if(!data.name || !data.admissionNo){ UI.toast('Name and admission number are required','error'); return; }
+          if(admissionNoTaken(data.admissionNo, record?record.id:null)){ UI.toast('That admission number is already in use','error'); return; }
           if(record){ DB.update('students', record.id, data); UI.toast('Student updated'); }
           else { data.feeStatus='Pending'; DB.add('students', data); UI.toast('Student added'); }
           close(); renderTable();
@@ -728,6 +771,7 @@ MODULES.students = function(container, ctx){
                 : !rec.admissionNo ? 'Missing admission no.'
                 : !rec.class ? 'Missing class'
                 : !existingClasses.includes(rec.class) ? `Class "${rec.class}" doesn't exist yet`
+                : admissionNoTaken(rec.admissionNo, null) ? 'Admission no. already in use'
                 : '';
               rec._valid = !rec._reason;
               return rec;
