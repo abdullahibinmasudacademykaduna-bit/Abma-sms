@@ -517,6 +517,21 @@ MODULES.students = function(container, ctx){
     let viewYear = now.getFullYear();
     let viewMonth = now.getMonth(); // 0-indexed
     let mode = 'calendar'; // 'calendar' | 'list'
+    // Tap-a-day marking (incl. never-marked days) is limited to Super Admin + Principal.
+    const canBackfill = ['Super Admin','Principal'].includes(ctx.user.role);
+    let editDate = null;   // 'YYYY-MM-DD' of the day being marked/edited, or null
+    function localToday(){
+      const d = new Date();
+      return `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`;
+    }
+    function recordFor(dateStr){
+      // same rule the calendar uses to display a day: last matching record wins
+      const matches = records().filter(r=>r.date===dateStr);
+      return matches.length ? matches[matches.length-1] : null;
+    }
+    function dayEditable(dateStr){
+      return canBackfill && isSchoolDay(dateStr) && dateStr <= localToday();
+    }
 
     function records(){
       return DB.all('attendanceRecords').filter(r=>r.studentId===s.id);
@@ -535,7 +550,7 @@ MODULES.students = function(container, ctx){
       const firstOfMonth = new Date(viewYear, viewMonth, 1);
       const startWeekday = firstOfMonth.getDay();
       const daysInMonth = new Date(viewYear, viewMonth+1, 0).getDate();
-      const todayStr = new Date().toISOString().slice(0,10);
+      const todayStr = localToday();
       const weekdayHead = ['Sun','Mon','Tue','Wed','Thu','Fri','Sat']
         .map(d=>`<div style="text-align:center;font-size:11px;font-weight:700;color:var(--ink-faint);padding:4px 0;">${d}</div>`).join('');
 
@@ -555,11 +570,25 @@ MODULES.students = function(container, ctx){
         } else if(!isFuture){
           badge = `<div style="margin-top:3px;font-size:10px;color:var(--ink-faint);">—</div>`;
         }
-        cells += `<div style="text-align:center;padding:6px 2px;border-radius:8px;${isToday?'outline:2px solid var(--green-500);':''}${!schoolDay?'opacity:.55;':''}">
+        const tappable = dayEditable(dateStr);
+        const selected = dateStr === editDate;
+        cells += `<div ${tappable?`data-day="${dateStr}"`:''} style="text-align:center;padding:6px 2px;border-radius:8px;${tappable?'cursor:pointer;':''}${selected?'outline:2px solid #2563eb;':(isToday?'outline:2px solid var(--green-500);':'')}${!schoolDay?'opacity:.55;':''}">
           <div style="font-size:12.5px;font-weight:${isToday?'700':'500'};">${d}</div>${badge}
         </div>`;
       }
       return `<div style="display:grid;grid-template-columns:repeat(7,1fr);gap:4px;">${weekdayHead}${cells}</div>`;
+    }
+
+    function dayPanelHTML(){
+      if(!editDate) return '';
+      const rec = recordFor(editDate);
+      return `<div class="card-flat" style="margin-bottom:12px;">
+        <div style="font-weight:700;margin-bottom:8px;">${UI.fmtDate(editDate)} — ${rec ? 'currently '+rec.status : 'not marked yet'}</div>
+        <div style="display:flex;gap:8px;flex-wrap:wrap;">
+          ${ATTENDANCE_STATUSES.map(st=>`<button class="btn btn-sm ${rec&&rec.status===st?'btn-primary':'btn-outline'}" data-set-status="${st}">${st}</button>`).join('')}
+          <button class="btn btn-sm btn-outline" data-cancel-day>Cancel</button>
+        </div>
+      </div>`;
     }
 
     function legendHTML(){
@@ -606,8 +635,10 @@ MODULES.students = function(container, ctx){
             <div style="font-weight:700;">${MONTH_NAMES_FULL[viewMonth]} ${viewYear}</div>
             <button class="icon-action" data-month="1">${ICONS.chevronRight(15)}</button>
           </div>
+          ${dayPanelHTML()}
           ${calendarHTML()}
           ${legendHTML()}
+          ${canBackfill ? `<div class="row-sub" style="margin-top:10px;">Tap any school day to mark or change it.</div>` : ''}
         ` : listHTML()}
       `;
     }
@@ -620,8 +651,24 @@ MODULES.students = function(container, ctx){
       onMount:(modal)=>{
         function rewire(){
           modal.querySelector('.modal-body').innerHTML = bodyHTML();
-          modal.querySelectorAll('[data-mode]').forEach(t=>t.addEventListener('click', ()=>{ mode = t.dataset.mode; rewire(); }));
+          modal.querySelectorAll('[data-mode]').forEach(t=>t.addEventListener('click', ()=>{ mode = t.dataset.mode; editDate = null; rewire(); }));
+          modal.querySelectorAll('[data-day]').forEach(c=>c.addEventListener('click', ()=>{ editDate = c.dataset.day; rewire(); }));
+          modal.querySelector('[data-cancel-day]')?.addEventListener('click', ()=>{ editDate = null; rewire(); });
+          modal.querySelectorAll('[data-set-status]').forEach(b=>b.addEventListener('click', ()=>{
+            const dateStr = editDate, status = b.dataset.setStatus;
+            // re-check everything at save time, not just when the day was tapped
+            if(!dateStr || !dayEditable(dateStr) || !ATTENDANCE_STATUSES.includes(status)){
+              UI.toast('That day can\'t be marked', 'error'); return;
+            }
+            const existing = recordFor(dateStr);   // re-read now: never create a second record for the same day
+            if(existing) DB.update('attendanceRecords', existing.id, {status, class: existing.class || s.class});
+            else DB.add('attendanceRecords', {studentId: s.id, class: s.class, date: dateStr, status});
+            UI.toast(`${UI.fmtDate(dateStr)}: marked ${status}`);
+            editDate = null;
+            rewire();
+          }));
           modal.querySelectorAll('[data-month]').forEach(b=>b.addEventListener('click', ()=>{
+            editDate = null;
             viewMonth += Number(b.dataset.month);
             if(viewMonth<0){ viewMonth=11; viewYear--; }
             if(viewMonth>11){ viewMonth=0; viewYear++; }
