@@ -1,4 +1,4 @@
-/* Greenwood SMS — Examination & Result management
+ /* Greenwood SMS — Examination & Result management
    Scoring: CA1 (0-20) + CA2 (0-20) + Exam (0-60) = Total (100).
    Results are stored one record per (student, exam): a subjects
    array plus behavioural ratings, comments and next-term info —
@@ -90,8 +90,8 @@ MODULES.exams = function(container, ctx){
   if(canPromote) tabs.push({key:'promotion', label:'Promotion'});
 
   container.innerHTML = `
-    ${UI.pageHeader('Academics', 'Examination & Result Management', canSchedule? `<button class="btn btn-primary" id="add-exam">${ICONS.plus(16)} Schedule Exam</button>`:'')}
-    <div class="tabs">${tabs.map((t,i)=>`<div class="tab ${i===0?'active':''}" data-tab="${t.key}">${t.label}</div>`).join('')}</div>
+    \( {UI.pageHeader('Academics', 'Examination & Result Management', canSchedule? `<button class="btn btn-primary" id="add-exam"> \){ICONS.plus(16)} Schedule Exam</button>`:'')}
+    <div class="tabs">${tabs.map((t,i)=>`<div class="tab \( {i===0?'active':''}" data-tab=" \){t.key}">${t.label}</div>`).join('')}</div>
     <div id="tab-body"></div>
   `;
   const body = container.querySelector('#tab-body');
@@ -147,7 +147,7 @@ MODULES.exams = function(container, ctx){
         {label:'End', render:r=>UI.fmtDate(r.endDate)},
         {label:'Status', render:r=>UI.badge(r.status, UI.statusTone(r.status))},
       ],
-      actions: r=>canSchedule? `<button class="icon-action" data-edit="${r.id}">${ICONS.edit(14)}</button><button class="icon-action" data-del="${r.id}">${ICONS.trash(14)}</button>` : '',
+      actions: r=>canSchedule? `<button class="icon-action" data-edit="\( {r.id}"> \){ICONS.edit(14)}</button><button class="icon-action" data-del="\( {r.id}"> \){ICONS.trash(14)}</button>` : '',
       onRender:(el)=>{
         el.querySelectorAll('[data-edit]').forEach(b=>b.addEventListener('click', ()=>openExamForm(DB.get('exams', b.dataset.edit))));
         el.querySelectorAll('[data-del]').forEach(b=>b.addEventListener('click', ()=>UI.confirmDialog('Delete this exam?', ()=>{DB.remove('exams', b.dataset.del); renderExams(); UI.toast('Exam removed');})));
@@ -155,7 +155,7 @@ MODULES.exams = function(container, ctx){
     });
   }
 
-  /* ---------------- Results ---------------- */
+  /* ---------------- Results (subject-first bulk entry) ---------------- */
   function renderResults(){
     if(!classOptions.length){
       body.innerHTML = UI.emptyState('No class assigned yet', 'Ask a Super Admin or Principal to assign you a class in Teacher Management.');
@@ -169,14 +169,16 @@ MODULES.exams = function(container, ctx){
     body.innerHTML = `
       <div class="card" style="margin-bottom:16px;">
         <div class="section-title">
-          Enter results
-          <div style="display:flex;gap:10px;flex-wrap:wrap;">
-            <select id="res-exam" style="width:auto;">${exams.map(e=>`<option value="${e.id}">${e.name} (${e.term})</option>`).join('')}</select>
-            <select id="res-class" style="width:auto;">${classOptions.map(c=>`<option value="${c}">${c}</option>`).join('')}</select>
-            <select id="res-student" style="width:auto;"></select>
+          Enter results by subject
+          <div style="display:flex;gap:10px;flex-wrap:wrap;align-items:center;">
+            <select id="res-exam" style="width:auto;">\( {exams.map(e=>`<option value=" \){e.id}">\( {e.name} ( \){e.term})</option>`).join('')}</select>
+            <select id="res-class" style="width:auto;">\( {classOptions.map(c=>`<option value=" \){c}">${c}</option>`).join('')}</select>
+            <select id="res-subject" style="width:auto;"></select>
+            <button class="btn btn-primary" id="save-subject-scores">${ICONS.check(15)} Save scores for this subject</button>
           </div>
         </div>
-        <div id="res-form"></div>
+        <p class="row-sub" style="margin:8px 0 0;">Select a subject, enter scores for every student, then save. Switch subjects to continue. Existing scores for other subjects are kept.</p>
+        <div id="res-form" style="margin-top:14px;"></div>
       </div>
       <div class="card">
         <div class="section-title">
@@ -188,141 +190,194 @@ MODULES.exams = function(container, ctx){
     `;
     const examSel = body.querySelector('#res-exam');
     const classSel = body.querySelector('#res-class');
-    const studentSel = body.querySelector('#res-student');
+    const subjectSel = body.querySelector('#res-subject');
+    const formHost = body.querySelector('#res-form');
 
-    function refreshStudentOptions(){
-      const students = DB.all('students').filter(s=>s.class===classSel.value);
-      studentSel.innerHTML = students.map(s=>`<option value="${s.id}">${s.name}</option>`).join('') || `<option value="">No students</option>`;
+    function refreshSubjectOptions(){
+      const subjects = subjectsForClass(classSel.value) || [];
+      const prev = subjectSel.value;
+      subjectSel.innerHTML = subjects.length
+        ? subjects.map(s=>`<option value="\( {s}"> \){s}</option>`).join('')
+        : `<option value="">No subjects for this class</option>`;
+      if(prev && subjects.includes(prev)) subjectSel.value = prev;
     }
-    function renderScoreForm(){
-      const examId = examSel.value, studentId = studentSel.value;
-      const student = DB.get('students', studentId);
-      const host = body.querySelector('#res-form');
-      if(!student){ host.innerHTML = UI.emptyState('No student selected'); return; }
-      const subjects = subjectsForClass(student.class);
-      const existing = DB.all('results').find(r=>r.studentId===studentId && r.examId===examId);
-      const canEditHeadRemark = ['Super Admin','Principal','Head Teacher'].includes(ctx.user.role);
 
-      host.innerHTML = `
-        <div class="table-wrap" style="margin-top:14px;"><div class="scroll-x"><table>
-          <thead><tr><th>Subject</th><th>CA1 (20)</th><th>CA2 (20)</th><th>Exam (60)</th><th>Total</th><th>Grade</th></tr></thead>
+    function clamp(val, max){
+      const n = Number(val);
+      if(isNaN(n) || n < 0) return 0;
+      return Math.min(n, max);
+    }
+
+    function renderSubjectForm(){
+      const examId = examSel.value;
+      const className = classSel.value;
+      const subject = subjectSel.value;
+      const students = DB.all('students').filter(s=>s.class===className && s.status!=='Inactive')
+        .sort((a,b)=> (a.name||'').localeCompare(b.name||''));
+
+      if(!subject){
+        formHost.innerHTML = UI.emptyState('No subject selected', 'Choose a subject above.');
+        return;
+      }
+      if(!students.length){
+        formHost.innerHTML = UI.emptyState('No students in this class');
+        return;
+      }
+
+      formHost.innerHTML = `
+        <div class="table-wrap"><div class="scroll-x"><table>
+          <thead>
+            <tr>
+              <th style="min-width:160px;">Student</th>
+              <th>CA1 (20)</th>
+              <th>CA2 (20)</th>
+              <th>Exam (60)</th>
+              <th>Total</th>
+              <th>Grade</th>
+            </tr>
+          </thead>
           <tbody>
-          ${subjects.map((sub,i)=>{
-            const ex = existing?.subjects.find(s=>s.name===sub);
-            return `<tr data-subject="${sub}">
-              <td class="row-name">${sub}</td>
-              <td><input type="number" min="0" max="20" data-field="ca1" style="width:64px;" value="${ex?ex.ca1:''}"/></td>
-              <td><input type="number" min="0" max="20" data-field="ca2" style="width:64px;" value="${ex?ex.ca2:''}"/></td>
-              <td><input type="number" min="0" max="60" data-field="exam" style="width:64px;" value="${ex?ex.exam:''}"/></td>
-              <td class="mono" data-total>${ex?ex.total:'—'}</td>
-              <td data-grade>${ex?UI.badge(ex.grade, ex.grade==='F'?'red':(ex.grade==='A'?'green':'blue')):'—'}</td>
-            </tr>`;
-          }).join('')}
+            ${students.map(stu=>{
+              const existing = DB.all('results').find(r=>r.studentId===stu.id && r.examId===examId);
+              const ex = existing?.subjects?.find(s=>s.name===subject);
+              const ca1 = ex ? ex.ca1 : '';
+              const ca2 = ex ? ex.ca2 : '';
+              const examSc = ex ? ex.exam : '';
+              const total = ex ? ex.total : '—';
+              const grade = ex ? ex.grade : '';
+              return `<tr data-sid="${stu.id}">
+                <td class="row-name">\( {stu.name} \){stu.admissionNo?`<div class="row-sub">${stu.admissionNo}</div>`:''}</td>
+                <td><input type="number" min="0" max="20" data-field="ca1" style="width:68px;" value="${ca1}"/></td>
+                <td><input type="number" min="0" max="20" data-field="ca2" style="width:68px;" value="${ca2}"/></td>
+                <td><input type="number" min="0" max="60" data-field="exam" style="width:68px;" value="${examSc}"/></td>
+                <td class="mono" data-total>${total}</td>
+                <td data-grade>${grade ? UI.badge(grade, grade==='F'?'red':(grade==='A'?'green':'blue')) : '—'}</td>
+              </tr>`;
+            }).join('')}
           </tbody>
         </table></div></div>
-
-        <div class="grid grid-2" style="margin-top:16px;">
-          <div class="card-flat">
-            <div class="section-title" style="margin-bottom:10px;">Affective skills (1–5)</div>
-            ${AFFECTIVE_TRAITS.map(t=>`<div class="field" style="margin-bottom:8px;"><label>${t}</label><select data-trait="${t}">${[1,2,3,4,5].map(n=>`<option value="${n}" ${existing?.behavioural?.[t]==n?'selected':''}>${n}</option>`).join('')}</select></div>`).join('')}
-          </div>
-          <div class="card-flat">
-            <div class="section-title" style="margin-bottom:10px;">Psychomotor skills (1–5)</div>
-            ${PSYCHOMOTOR_TRAITS.map(t=>`<div class="field" style="margin-bottom:8px;"><label>${t}</label><select data-trait="${t}">${[1,2,3,4,5].map(n=>`<option value="${n}" ${existing?.behavioural?.[t]==n?'selected':''}>${n}</option>`).join('')}</select></div>`).join('')}
-          </div>
-        </div>
-
-        <div class="grid grid-2" style="margin-top:16px;">
-          <div class="field"><label>Class Teacher's remark <span class="row-sub">(leave blank to auto-generate)</span></label><textarea id="remark-class" rows="3">${existing?.remarkClass||''}</textarea></div>
-          <div class="field"><label>Head Teacher's remark ${canEditHeadRemark?'<span class="row-sub">(leave blank to auto-generate)</span>':'(read-only for your role)'}</label><textarea id="remark-head" rows="3" ${canEditHeadRemark?'':'disabled'}>${existing?.remarkHead||''}</textarea></div>
-          <div class="field"><label>Next term begins</label><input type="date" id="next-begin" value="${existing?.nextTermBegin||''}"/></div>
-          <div class="field"><label>Next term fee</label><input type="number" id="next-fee" value="${existing?.nextTermFee||''}"/></div>
-        </div>
-        <div style="margin-top:16px;text-align:right;display:flex;gap:10px;justify-content:flex-end;">
-          ${existing? `<button class="btn btn-outline" id="view-card">${ICONS.eye(14)} View report card</button>` : ''}
-          <button class="btn btn-primary" id="save-result">${ICONS.check(15)} Save result</button>
-        </div>
       `;
 
-      function recalcRow(tr){
-        const ca1 = Number(tr.querySelector('[data-field="ca1"]').value)||0;
-        const ca2 = Number(tr.querySelector('[data-field="ca2"]').value)||0;
-        const exam = Number(tr.querySelector('[data-field="exam"]').value)||0;
-        const total = ca1+ca2+exam;
-        const band = gradeFor(total);
-        tr.querySelector('[data-total]').textContent = total;
-        tr.querySelector('[data-grade]').innerHTML = UI.badge(band.grade, band.grade==='F'?'red':(band.grade==='A'?'green':'blue'));
-      }
-      host.querySelectorAll('tr[data-subject] input').forEach(inp=>{
-        inp.addEventListener('input', ()=> recalcRow(inp.closest('tr')));
-      });
-
-      host.querySelector('#save-result')?.addEventListener('click', ()=>{
-        const subjectRows = Array.from(host.querySelectorAll('tr[data-subject]')).map(tr=>{
-          const ca1 = Number(tr.querySelector('[data-field="ca1"]').value)||0;
-          const ca2 = Number(tr.querySelector('[data-field="ca2"]').value)||0;
-          const exam = Number(tr.querySelector('[data-field="exam"]').value)||0;
-          const total = ca1+ca2+exam;
+      formHost.querySelectorAll('tr[data-sid] input').forEach(inp=>{
+        inp.addEventListener('input', ()=>{
+          const tr = inp.closest('tr');
+          const ca1 = clamp(tr.querySelector('[data-field="ca1"]').value, 20);
+          const ca2 = clamp(tr.querySelector('[data-field="ca2"]').value, 20);
+          const exam = clamp(tr.querySelector('[data-field="exam"]').value, 60);
+          const total = ca1 + ca2 + exam;
           const band = gradeFor(total);
-          return {name: tr.dataset.subject, ca1, ca2, exam, total, grade: band.grade, remark: band.remark};
+          tr.querySelector('[data-total]').textContent = total;
+          tr.querySelector('[data-grade]').innerHTML = UI.badge(band.grade, band.grade==='F'?'red':(band.grade==='A'?'green':'blue'));
         });
-        const overallTotal = subjectRows.reduce((s,r)=>s+r.total,0);
-        const avg = Math.round(overallTotal/subjectRows.length);
-        const behavioural = {};
-        host.querySelectorAll('[data-trait]').forEach(sel=> behavioural[sel.dataset.trait] = Number(sel.value));
-        const typedClassRemark = host.querySelector('#remark-class').value.trim();
-        const typedHeadRemark = host.querySelector('#remark-head').value.trim();
+      });
+    }
 
-        // Step 1: save with a provisional (position-less) auto comment if left blank,
-        // so this result counts toward the class ranking used in step 2.
-        const payload = {
-          studentId, examId, class: student.class, subjects: subjectRows, overallTotal, behavioural,
-          remarkClass: typedClassRemark || autoComment(avg, null, null, false),
-          remarkHead: canEditHeadRemark ? (typedHeadRemark || autoComment(avg, null, null, true)) : (existing?.remarkHead || autoComment(avg, null, null, true)),
-          nextTermBegin: host.querySelector('#next-begin').value,
-          nextTermFee: Number(host.querySelector('#next-fee').value)||0,
-          session: DB.get('exams', examId)?.session || '',
-          savedAt: new Date().toISOString(),
-        };
-        const saved = existing ? DB.update('results', existing.id, payload) : DB.add('results', payload);
+    function saveSubjectScores(){
+      const examId = examSel.value;
+      const className = classSel.value;
+      const subject = subjectSel.value;
+      if(!subject){ UI.toast('Select a subject first','error'); return; }
 
-        // Step 2: now that this result is counted, refine any auto-generated
-        // remark with the real position/class-size context.
-        if(!typedClassRemark || (canEditHeadRemark && !typedHeadRemark)){
-          const {position, classSize} = positionFor(examId, student.class, studentId);
-          const patch = {};
-          if(!typedClassRemark) patch.remarkClass = autoComment(avg, position, classSize, false);
-          if(canEditHeadRemark && !typedHeadRemark) patch.remarkHead = autoComment(avg, position, classSize, true);
-          DB.update('results', saved.id, patch);
+      const exam = DB.get('exams', examId);
+      const session = exam?.session || '';
+      let updated = 0;
+      let created = 0;
+
+      formHost.querySelectorAll('tr[data-sid]').forEach(tr=>{
+        const studentId = tr.dataset.sid;
+        const student = DB.get('students', studentId);
+        if(!student) return;
+
+        const ca1 = clamp(tr.querySelector('[data-field="ca1"]').value, 20);
+        const ca2 = clamp(tr.querySelector('[data-field="ca2"]').value, 20);
+        const examSc = clamp(tr.querySelector('[data-field="exam"]').value, 60);
+        const total = ca1 + ca2 + examSc;
+        const band = gradeFor(total);
+        const entry = { name: subject, ca1, ca2, exam: examSc, total, grade: band.grade, remark: band.remark };
+
+        const existing = DB.all('results').find(r=>r.studentId===studentId && r.examId===examId);
+
+        if(existing){
+          const subjects = Array.isArray(existing.subjects) ? existing.subjects.slice() : [];
+          const idx = subjects.findIndex(s=>s.name===subject);
+          if(idx >= 0) subjects[idx] = entry;
+          else subjects.push(entry);
+          const overallTotal = subjects.reduce((sum,s)=>sum + (Number(s.total)||0), 0);
+          DB.update('results', existing.id, {
+            subjects,
+            overallTotal,
+            class: student.class,
+            session: session || existing.session || '',
+            savedAt: new Date().toISOString()
+          });
+          updated++;
+        } else if(ca1 || ca2 || examSc){
+          // Only create a new result document when at least one score was entered
+          DB.add('results', {
+            studentId,
+            examId,
+            class: student.class,
+            subjects: [entry],
+            overallTotal: total,
+            behavioural: {},
+            remarkClass: '',
+            remarkHead: '',
+            nextTermBegin: '',
+            nextTermFee: 0,
+            session,
+            savedAt: new Date().toISOString()
+          });
+          created++;
         }
-
-        UI.toast('Result saved');
-        renderScoreForm();
-        renderSavedList();
       });
 
-      host.querySelector('#view-card')?.addEventListener('click', ()=> openReportCard(studentId, examId));
+      const msg = created
+        ? `Saved ${subject}: ${updated} updated, ${created} new`
+        : `Saved ${subject} scores for ${updated} student(s)`;
+      UI.toast(msg);
+      renderSubjectForm();
+      renderSavedList();
     }
 
     function renderSavedList(){
       const students = DB.all('students').filter(s=>s.class===classSel.value);
-      const rows = DB.all('results').filter(r=>r.examId===examSel.value && students.some(s=>s.id===r.studentId))
-        .map(r=>({...r, studentName: students.find(s=>s.id===r.studentId)?.name, avg: Math.round(r.overallTotal/r.subjects.length)}));
+      const rows = DB.all('results')
+        .filter(r=>r.examId===examSel.value && students.some(s=>s.id===r.studentId))
+        .map(r=>({
+          ...r,
+          studentName: students.find(s=>s.id===r.studentId)?.name || '—',
+          avg: r.subjects?.length ? Math.round(r.overallTotal / r.subjects.length) : 0
+        }));
       const listHost = body.querySelector('#res-list');
-      if(!rows.length){ listHost.innerHTML = UI.emptyState('No results saved yet for this class & exam'); return; }
+      if(!rows.length){
+        listHost.innerHTML = UI.emptyState('No results saved yet for this class & exam');
+        return;
+      }
       listHost.innerHTML = `<div class="table-wrap"><div class="scroll-x"><table>
-        <thead><tr><th>Student</th><th>Average</th><th>Position</th><th></th></tr></thead>
+        <thead><tr><th>Student</th><th>Subjects</th><th>Average</th><th>Position</th><th></th></tr></thead>
         <tbody>${rows.sort((a,b)=>b.overallTotal-a.overallTotal).map((r,i)=>`
-          <tr><td class="row-name">${r.studentName}</td><td class="mono">${r.avg}%</td><td>${ordinal(i+1)}</td>
-          <td><button class="btn btn-sm btn-outline" data-card="${r.studentId}">${ICONS.print(13)} Report</button></td></tr>
+          <tr>
+            <td class="row-name">${r.studentName}</td>
+            <td class="mono">${r.subjects?.length || 0}</td>
+            <td class="mono">${r.avg}%</td>
+            <td>${ordinal(i+1)}</td>
+            <td><button class="btn btn-sm btn-outline" data-card="\( {r.studentId}"> \){ICONS.print(13)} Report</button></td>
+          </tr>
         `).join('')}</tbody>
       </table></div></div>`;
-      listHost.querySelectorAll('[data-card]').forEach(b=>b.addEventListener('click', ()=> launchPrint([{studentId:b.dataset.card, examId:examSel.value}])));
+      listHost.querySelectorAll('[data-card]').forEach(b=>{
+        b.addEventListener('click', ()=> launchPrint([{studentId:b.dataset.card, examId:examSel.value}]));
+      });
     }
 
-    examSel.addEventListener('change', ()=>{ renderScoreForm(); renderSavedList(); });
-    classSel.addEventListener('change', ()=>{ refreshStudentOptions(); renderScoreForm(); renderSavedList(); });
-    studentSel.addEventListener('change', renderScoreForm);
+    examSel.addEventListener('change', ()=>{ renderSubjectForm(); renderSavedList(); });
+    classSel.addEventListener('change', ()=>{
+      refreshSubjectOptions();
+      renderSubjectForm();
+      renderSavedList();
+    });
+    subjectSel.addEventListener('change', renderSubjectForm);
+    body.querySelector('#save-subject-scores').addEventListener('click', saveSubjectScores);
     body.querySelector('#print-class-btn').addEventListener('click', ()=>{
       const students = DB.all('students').filter(s=>s.class===classSel.value);
       const items = DB.all('results')
@@ -332,8 +387,8 @@ MODULES.exams = function(container, ctx){
       launchPrint(items);
     });
 
-    refreshStudentOptions();
-    renderScoreForm();
+    refreshSubjectOptions();
+    renderSubjectForm();
     renderSavedList();
   }
 
@@ -342,7 +397,7 @@ MODULES.exams = function(container, ctx){
     const scoped = getScopedClasses(ctx);
     const students = scoped ? DB.all('students').filter(s=>scoped.includes(s.class)) : DB.all('students');
     const studentIds = new Set(students.map(s=>s.id));
-    const flatSubjects = DB.all('results').filter(r=>studentIds.has(r.studentId)).flatMap(r=>r.subjects);
+    const flatSubjects = DB.all('results').filter(r=>studentIds.has(r.studentId)).flatMap(r=>r.subjects||[]);
     const subjectNames = [...new Set(flatSubjects.map(s=>s.name))];
     const avgBySubject = subjectNames.map(name=>{
       const scores = flatSubjects.filter(s=>s.name===name).map(s=>s.total);
@@ -367,7 +422,7 @@ MODULES.exams = function(container, ctx){
       <div class="card">
         <div class="section-title">
           Batch promote students
-          <select id="promo-class" style="width:auto;">${getClassNames().map(c=>`<option value="${c}">${c}</option>`).join('')}</select>
+          <select id="promo-class" style="width:auto;">\( {getClassNames().map(c=>`<option value=" \){c}">${c}</option>`).join('')}</select>
         </div>
         <p class="row-sub" style="margin-bottom:14px;">Select students to move up to the next class at the end of term/year.</p>
         <div id="promo-list"></div>
@@ -382,12 +437,12 @@ MODULES.exams = function(container, ctx){
       body.querySelector('#promo-list').innerHTML = `
         <div class="table-wrap"><div class="scroll-x"><table>
           <thead><tr><th><input type="checkbox" id="promo-all"/></th><th>Student</th><th>Current class</th></tr></thead>
-          <tbody>${students.map(s=>`<tr><td><input type="checkbox" class="promo-check" data-sid="${s.id}"/></td><td class="row-name">${s.name}</td><td>${s.class}</td></tr>`).join('') || `<tr><td colspan="3">${UI.emptyState('No active students in this class')}</td></tr>`}</tbody>
+          <tbody>\( {students.map(s=>`<tr><td><input type="checkbox" class="promo-check" data-sid=" \){s.id}"/></td><td class="row-name">\( {s.name}</td><td> \){s.class}</td></tr>`).join('') || `<tr><td colspan="3">${UI.emptyState('No active students in this class')}</td></tr>`}</tbody>
         </table></div></div>
         ${students.length ? `
         <div style="margin-top:14px;display:flex;gap:10px;align-items:center;justify-content:flex-end;">
           <span class="row-sub">Promote checked students to:</span>
-          <select id="promo-target" style="width:auto;">${next ? `<option value="${next}">${next}</option>` : `<option value="">Graduate (no further class)</option>`}${getClassNames().map(c=>`<option value="${c}">${c}</option>`).join('')}</select>
+          <select id="promo-target" style="width:auto;">\( {next ? `<option value=" \){next}">\( {next}</option>` : `<option value="">Graduate (no further class)</option>`} \){getClassNames().map(c=>`<option value="\( {c}"> \){c}</option>`).join('')}</select>
           <button class="btn btn-primary" id="promo-go">${ICONS.check(15)} Promote selected</button>
         </div>` : ''}
       `;
@@ -430,7 +485,7 @@ function buildReportCardHTML(studentId, examId, isPrint){
   const overallMax = result.subjects.length*100;
   const posText = position ? `${ordinal(position)} out of ${classSize} Pupils` : '—';
   const qrData = JSON.stringify({school:settings.schoolName, name:student.name, admissionNo:student.admissionNo, class:student.class, term:exam.term, session:result.session||exam.session, average:avg});
-  const qrId = `qr-${studentId}-${examId}`;
+  const qrId = `qr-\( {studentId}- \){examId}`;
 
   if(!isPrint){
     setTimeout(()=>{
@@ -444,7 +499,7 @@ function buildReportCardHTML(studentId, examId, isPrint){
 
   return `
   <div class="rc-school-header">
-    <div class="rc-logo-wrap">${settings.logoDataUrl ? `<img src="${settings.logoDataUrl}"/>` : '&#127891;'}</div>
+    <div class="rc-logo-wrap">\( {settings.logoDataUrl ? `<img src=" \){settings.logoDataUrl}"/>` : '&#127891;'}</div>
     <div>
       <div class="rc-school-name">${settings.schoolName||'Your School Name'}</div>
       <div class="rc-school-address">${settings.address||'School address, city'}</div>
@@ -455,21 +510,21 @@ function buildReportCardHTML(studentId, examId, isPrint){
   <table class="rc-info-grid">
     <colgroup><col style="width:16%"><col style="width:26%"><col style="width:11%"><col style="width:16%"><col style="width:9%"><col style="width:22%"></colgroup>
     <tr><td class="rc-info-label">FULL NAME</td><td class="rc-info-value name" colspan="5">${student.name}</td></tr>
-    <tr><td class="rc-info-label">ADMISSION NO</td><td class="rc-info-value">${student.admissionNo}</td><td class="rc-info-label">CLASS</td><td class="rc-info-value">${student.class}</td><td class="rc-info-label">SEX</td><td class="rc-info-value">${student.gender}</td></tr>
-    <tr><td class="rc-info-label">TERM</td><td class="rc-info-value" colspan="2">${exam.term}</td><td class="rc-info-label">SESSION</td><td class="rc-info-value" colspan="2">${result.session||exam.session||'—'}</td></tr>
-    <tr><td class="rc-info-label">NO. TIMES SCHOOL OPENED</td><td class="rc-info-value" colspan="2">${opened||'—'}</td><td class="rc-info-label">NO. TIMES PRESENT</td><td class="rc-info-value" colspan="2">${present||'—'}</td></tr>
+    <tr><td class="rc-info-label">ADMISSION NO</td><td class="rc-info-value">\( {student.admissionNo}</td><td class="rc-info-label">CLASS</td><td class="rc-info-value"> \){student.class}</td><td class="rc-info-label">SEX</td><td class="rc-info-value">${student.gender}</td></tr>
+    <tr><td class="rc-info-label">TERM</td><td class="rc-info-value" colspan="2">\( {exam.term}</td><td class="rc-info-label">SESSION</td><td class="rc-info-value" colspan="2"> \){result.session||exam.session||'—'}</td></tr>
+    <tr><td class="rc-info-label">NO. TIMES SCHOOL OPENED</td><td class="rc-info-value" colspan="2">\( {opened||'—'}</td><td class="rc-info-label">NO. TIMES PRESENT</td><td class="rc-info-value" colspan="2"> \){present||'—'}</td></tr>
   </table>
   <div class="rc-main-row">
     <div class="rc-subjects-col">
       <table class="rc-subjects"><thead><tr><th style="width:22px;">#</th><th style="text-align:left;">Subjects</th><th>CA1</th><th>CA2</th><th>Exam</th><th>Tot</th><th>Grd</th><th>Remark</th></tr></thead>
-        <tbody>${result.subjects.map((s,i)=>`<tr><td>${i+1}</td><td>${s.name}</td><td>${s.ca1}</td><td>${s.ca2}</td><td>${s.exam}</td><td style="font-weight:700;">${s.total}</td><td class="${gradeClass(s.grade)}">${s.grade}</td><td>${s.remark}</td></tr>`).join('')}</tbody>
+        <tbody>\( {result.subjects.map((s,i)=>`<tr><td> \){i+1}</td><td>\( {s.name}</td><td> \){s.ca1}</td><td>\( {s.ca2}</td><td> \){s.exam}</td><td style="font-weight:700;">\( {s.total}</td><td class=" \){gradeClass(s.grade)}">\( {s.grade}</td><td> \){s.remark}</td></tr>`).join('')}</tbody>
       </table>
     </div>
     <div class="rc-side-col">
       <table class="rc-skills-table"><thead><tr><th>Affective Skills</th><th>Rtg</th></tr></thead>
-        <tbody>${AFFECTIVE_TRAITS.map(t=>`<tr><td>${t}</td><td>${result.behavioural?.[t]??'—'}</td></tr>`).join('')}</tbody></table>
+        <tbody>\( {AFFECTIVE_TRAITS.map(t=>`<tr><td> \){t}</td><td>${result.behavioural?.[t]??'—'}</td></tr>`).join('')}</tbody></table>
       <table class="rc-skills-table"><thead><tr><th>Psychomotor Skills</th><th>Rtg</th></tr></thead>
-        <tbody>${PSYCHOMOTOR_TRAITS.map(t=>`<tr><td>${t}</td><td>${result.behavioural?.[t]??'—'}</td></tr>`).join('')}</tbody></table>
+        <tbody>\( {PSYCHOMOTOR_TRAITS.map(t=>`<tr><td> \){t}</td><td>${result.behavioural?.[t]??'—'}</td></tr>`).join('')}</tbody></table>
       <div class="rc-sig-panel"><div class="rc-sig-panel-label">Class Teacher's Signature</div><div class="rc-sig-panel-box"></div></div>
     </div>
   </div>
@@ -484,16 +539,16 @@ function buildReportCardHTML(studentId, examId, isPrint){
     <div>
       <div class="rc-sub-bar">Score Range / Grading Key</div>
       <table class="rc-grading"><thead><tr><th>Score Range</th><th>Grade</th><th>Remark</th></tr></thead>
-      <tbody>${gradingScale().map(g=>`<tr><td>${g.min} - ${g.max}</td><td style="font-weight:700;">${g.grade}</td><td class="${g.grade==='F'?'rc-fail':''}">${g.remark}</td></tr>`).join('')}</tbody></table>
+      <tbody>\( {gradingScale().map(g=>`<tr><td> \){g.min} - \( {g.max}</td><td style="font-weight:700;"> \){g.grade}</td><td class="\( {g.grade==='F'?'rc-fail':''}"> \){g.remark}</td></tr>`).join('')}</tbody></table>
     </div>
     <div>
       <div class="rc-sub-bar">Rating Key</div>
       <div class="rc-rating-key">
-        ${[[5,'Excellent'],[4,'Very Good'],[3,'Good'],[2,'Fair'],[1,'Poor']].map(([n,label])=>`<div class="rc-rating-line"><span class="rc-rating-num">${n}</span><span class="rc-rating-dots"></span><span class="rc-rating-label">${label}</span></div>`).join('')}
+        \( {[[5,'Excellent'],[4,'Very Good'],[3,'Good'],[2,'Fair'],[1,'Poor']].map(([n,label])=>`<div class="rc-rating-line"><span class="rc-rating-num"> \){n}</span><span class="rc-rating-dots"></span><span class="rc-rating-label">${label}</span></div>`).join('')}
       </div>
     </div>
   </div>
-  <div class="rc-term-row"><span>NEXT TERM BEGINS: <span class="val">${result.nextTermBegin?UI.fmtDate(result.nextTermBegin):'To be announced'}</span></span><span>NEXT TERM FEE: <span class="val">${result.nextTermFee?UI.fmtMoney(result.nextTermFee):'—'}</span></span></div>
+  <div class="rc-term-row"><span>NEXT TERM BEGINS: <span class="val">\( {result.nextTermBegin?UI.fmtDate(result.nextTermBegin):'To be announced'}</span></span><span>NEXT TERM FEE: <span class="val"> \){result.nextTermFee?UI.fmtMoney(result.nextTermFee):'—'}</span></span></div>
   <div class="rc-remarks-box">
     <div class="rc-remark-row"><span class="rc-remark-label">Class Teacher's Remark:</span><span class="rc-remark-text">${result.remarkClass}</span></div>
     <div class="rc-remark-row"><span class="rc-remark-label">Head Teacher's Remark:</span><span class="rc-remark-text">${result.remarkHead}</span></div>
@@ -501,7 +556,7 @@ function buildReportCardHTML(studentId, examId, isPrint){
   <div class="rc-footer">
     <div class="rc-footer-sig"><div class="rc-footer-sig-line"></div><div class="rc-footer-sig-label">Head Teacher's Signature</div></div>
     <div class="rc-stamp-box"><div>Official</div><div>Stamp</div></div>
-    <div class="rc-qr"><div id="${qrId}" data-qrtext="${encodeURIComponent(qrData)}" style="width:54px;height:54px;"></div><div class="rc-qr-label">Scan to verify</div></div>
+    <div class="rc-qr"><div id="\( {qrId}" data-qrtext=" \){encodeURIComponent(qrData)}" style="width:54px;height:54px;"></div><div class="rc-qr-label">Scan to verify</div></div>
   </div>`;
 }
 
@@ -630,7 +685,7 @@ function launchPrint(items){
 
   resolveQRCodes(cardHTMLs, (resolvedHTMLs)=>{
     const pagesHtml = resolvedHTMLs.map(h=>`<div class="pw rc">${h}</div>`).join('');
-    const html = `<!DOCTYPE html><html><head><meta charset="UTF-8"><title>Report Card</title><style>${PRINT_CSS}</style></head><body>${pagesHtml}<script>window.onload=function(){window.print();};<\/script></body></html>`;
+    const html = `<!DOCTYPE html><html><head><meta charset="UTF-8"><title>Report Card</title><style>\( {PRINT_CSS}</style></head><body> \){pagesHtml}<script>window.onload=function(){window.print();};<\/script></body></html>`;
     const blob = new Blob([html], {type:'text/html'});
     const url = URL.createObjectURL(blob);
     const iframe = document.createElement('iframe');
