@@ -435,7 +435,7 @@ MODULES.students = function(container, ctx){
     });
   });
 
-  /* Special export: a CSV with only two columns (Name, Reg No) for a chosen
+  /* Special export: a CSV or JSON file with only Name and Reg No for a chosen
      class (or every class you can see). Reg No = the student's admission number.
      Follows the same class limits as the table, so teachers only get their own classes. */
   container.querySelector('#export-namereg').addEventListener('click', ()=>{
@@ -444,13 +444,17 @@ MODULES.students = function(container, ctx){
     const options = (scoped && scoped.length) ? classChoices : [ALL, ...classChoices];
     UI.openModal({
       title:'Export Name & Reg No',
-      bodyHTML: UI.renderForm([{name:'className', label:'Class', type:'select', options, required:true, full:true}], {})
+      bodyHTML: UI.renderForm([
+          {name:'className', label:'Class', type:'select', options, required:true, full:true},
+          {name:'format', label:'File type', type:'select', options:['CSV','JSON'], required:true, full:true},
+        ], {})
         + `<label style="display:flex;align-items:center;gap:8px;margin-top:12px;font-size:13px;"><input type="checkbox" id="exp-active" checked/> Active pupils only (leave out Inactive)</label>`,
-      footHTML:`<button class="btn btn-outline" data-cancel>Cancel</button><button class="btn btn-primary" data-export>Download CSV</button>`,
+      footHTML:`<button class="btn btn-outline" data-cancel>Cancel</button><button class="btn btn-primary" data-export>Download</button>`,
       onMount:(modal, close)=>{
         modal.querySelector('[data-cancel]').addEventListener('click', close);
         modal.querySelector('[data-export]').addEventListener('click', ()=>{
           const className = modal.querySelector('[name="className"]').value;
+          const format = modal.querySelector('[name="format"]').value;   // 'CSV' | 'JSON'
           const activeOnly = modal.querySelector('#exp-active').checked;
           let list = DB.all('students');
           if(scoped) list = list.filter(x=>scoped.includes(x.class));
@@ -458,21 +462,30 @@ MODULES.students = function(container, ctx){
           if(activeOnly) list = list.filter(x=>x.status !== 'Inactive');
           list = sortByClassThenName(list);
           if(!list.length){ UI.toast('No students match that choice','error'); return; }
-          // Quote every field; neutralise values Excel could run as a formula.
-          const cell = v => {
-            let t = String(v==null ? '' : v);
-            if(/^[=+\-@\t\r]/.test(t)) t = "'" + t;
-            return '"' + t.replace(/"/g,'""') + '"';
-          };
-          const lines = ['Name,Reg No', ...list.map(x=>`${cell(x.name)},${cell(x.admissionNo)}`)];
-          // BOM so Excel shows Arabic / accented names correctly
-          const blob = new Blob(['\uFEFF' + lines.join('\r\n')], {type:'text/csv;charset=utf-8'});
+          let blob, ext;
+          if(format === 'JSON'){
+            // Plain data for other tools: no Excel guards, and reg numbers stay exact text.
+            const data = list.map(x=>({name: x.name || '', regNo: String(x.admissionNo==null ? '' : x.admissionNo)}));
+            blob = new Blob([JSON.stringify(data, null, 2)], {type:'application/json;charset=utf-8'});
+            ext = 'json';
+          } else {
+            // Quote every field; neutralise values Excel could run as a formula.
+            const cell = v => {
+              let t = String(v==null ? '' : v);
+              if(/^[=+\-@\t\r]/.test(t)) t = "'" + t;
+              return '"' + t.replace(/"/g,'""') + '"';
+            };
+            const lines = ['Name,Reg No', ...list.map(x=>`${cell(x.name)},${cell(x.admissionNo)}`)];
+            // BOM so Excel shows Arabic / accented names correctly
+            blob = new Blob(['\uFEFF' + lines.join('\r\n')], {type:'text/csv;charset=utf-8'});
+            ext = 'csv';
+          }
           const a = document.createElement('a');
           const tag = (className===ALL ? 'all-classes' : className).replace(/[^A-Za-z0-9]+/g,'-').replace(/^-|-$/g,'').toLowerCase();
-          a.href = URL.createObjectURL(blob); a.download = `students-name-regno-${tag}.csv`;
+          a.href = URL.createObjectURL(blob); a.download = `students-name-regno-${tag}.${ext}`;
           document.body.appendChild(a); a.click(); a.remove();
           setTimeout(()=>URL.revokeObjectURL(a.href), 2000);
-          UI.toast(`Exported ${list.length} student${list.length===1?'':'s'}`);
+          UI.toast(`Exported ${list.length} student${list.length===1?'':'s'} as ${ext.toUpperCase()}`);
           close();
         });
       }
