@@ -407,6 +407,7 @@ MODULES.students = function(container, ctx){
   container.innerHTML = `
     ${UI.pageHeader('People', 'Student Management', `
       <button class="btn btn-outline" id="print-idcards">${ICONS.id(15)} Print ID Cards</button>
+      <button class="btn btn-outline" id="export-namereg">${ICONS.download ? ICONS.download(15) : ''} Export Name &amp; Reg No</button>
       ${canEdit ? `<button class="btn btn-outline" id="import-students">${ICONS.upload(15)} Import CSV</button>` : ''}
       ${canEdit ? `<button class="btn btn-primary" id="add-student">${ICONS.plus(16)} Add Student</button>` : ''}
     `)}
@@ -428,6 +429,50 @@ MODULES.students = function(container, ctx){
           const list = sortByClassThenName(DB.all('students').filter(s=>s.class===className));
           if(!list.length){ UI.toast('No students in that class yet','error'); return; }
           printIDCards(list);
+          close();
+        });
+      }
+    });
+  });
+
+  /* Special export: a CSV with only two columns (Name, Reg No) for a chosen
+     class (or every class you can see). Reg No = the student's admission number.
+     Follows the same class limits as the table, so teachers only get their own classes. */
+  container.querySelector('#export-namereg').addEventListener('click', ()=>{
+    const classChoices = (scoped && scoped.length) ? scoped : getClassNames();
+    const ALL = 'All classes';
+    const options = (scoped && scoped.length) ? classChoices : [ALL, ...classChoices];
+    UI.openModal({
+      title:'Export Name & Reg No',
+      bodyHTML: UI.renderForm([{name:'className', label:'Class', type:'select', options, required:true, full:true}], {})
+        + `<label style="display:flex;align-items:center;gap:8px;margin-top:12px;font-size:13px;"><input type="checkbox" id="exp-active" checked/> Active pupils only (leave out Inactive)</label>`,
+      footHTML:`<button class="btn btn-outline" data-cancel>Cancel</button><button class="btn btn-primary" data-export>Download CSV</button>`,
+      onMount:(modal, close)=>{
+        modal.querySelector('[data-cancel]').addEventListener('click', close);
+        modal.querySelector('[data-export]').addEventListener('click', ()=>{
+          const className = modal.querySelector('[name="className"]').value;
+          const activeOnly = modal.querySelector('#exp-active').checked;
+          let list = DB.all('students');
+          if(scoped) list = list.filter(x=>scoped.includes(x.class));
+          if(className !== ALL) list = list.filter(x=>x.class === className);
+          if(activeOnly) list = list.filter(x=>x.status !== 'Inactive');
+          list = sortByClassThenName(list);
+          if(!list.length){ UI.toast('No students match that choice','error'); return; }
+          // Quote every field; neutralise values Excel could run as a formula.
+          const cell = v => {
+            let t = String(v==null ? '' : v);
+            if(/^[=+\-@\t\r]/.test(t)) t = "'" + t;
+            return '"' + t.replace(/"/g,'""') + '"';
+          };
+          const lines = ['Name,Reg No', ...list.map(x=>`${cell(x.name)},${cell(x.admissionNo)}`)];
+          // BOM so Excel shows Arabic / accented names correctly
+          const blob = new Blob(['\uFEFF' + lines.join('\r\n')], {type:'text/csv;charset=utf-8'});
+          const a = document.createElement('a');
+          const tag = (className===ALL ? 'all-classes' : className).replace(/[^A-Za-z0-9]+/g,'-').replace(/^-|-$/g,'').toLowerCase();
+          a.href = URL.createObjectURL(blob); a.download = `students-name-regno-${tag}.csv`;
+          document.body.appendChild(a); a.click(); a.remove();
+          setTimeout(()=>URL.revokeObjectURL(a.href), 2000);
+          UI.toast(`Exported ${list.length} student${list.length===1?'':'s'}`);
           close();
         });
       }
